@@ -1,0 +1,12 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /orders/{shopId}/{allPaths=**} {
+      // Authenticated users (including anonymous auth for customers) can upload
+      // Direct client-to-Firebase Storage upload with no file size limit
+      allow write: if request.auth != null;
+      allow read: if true;
+      allow delete: if request.auth != null;
+    }
+  }
+}
