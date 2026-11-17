@@ -193,7 +193,16 @@ export default function SuperAdminSecretPage() {
   const downloadQrCode = (shopId: string, shopName: string) => {
     const canvas = document.getElementById(`qr-${shopId}`) as HTMLCanvasElement;
     if (!canvas) return;
-    const url = canvas.toDataURL("image/png");
+    // Scale up to 512x512 for high-res print quality
+    const exportSize = 512;
+    const exportCanvas = document.createElement("canvas");
+    exportCanvas.width = exportSize;
+    exportCanvas.height = exportSize;
+    const ctx = exportCanvas.getContext("2d");
+    if (!ctx) return;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(canvas, 0, 0, exportSize, exportSize);
+    const url = exportCanvas.toDataURL("image/png");
     const a = document.createElement("a");
     a.href = url;
     a.download = `PaperFlow-QR-${shopName.replace(/\s+/g, "_")}.png`;
@@ -380,18 +389,19 @@ export default function SuperAdminSecretPage() {
                           </button>
                         </td>
                         <td className="py-3.5 px-4">
-                          <div className="flex items-center gap-2">
-                            <div className="p-1 bg-white border border-[#191919] rounded shadow-sm inline-block">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-white border-2 border-[#191919] rounded-lg shadow-[2px_2px_0px_#191919] inline-block cursor-pointer hover:shadow-[3px_3px_0px_#e75325] transition-all" onClick={() => downloadQrCode(shop.id, shop.name)} title="Click to download QR Code">
                               <QRCodeCanvas
                                 id={`qr-${shop.id}`}
                                 value={shopUrl}
-                                size={44}
-                                level="M"
+                                size={96}
+                                level="H"
+                                marginSize={1}
                               />
                             </div>
                             <button
                               onClick={() => downloadQrCode(shop.id, shop.name)}
-                              className="text-[11px] text-[#191919] font-bold flex items-center gap-1 hover:text-[#e75325] border border-neutral-300 rounded px-2 py-1 bg-neutral-50 hover:bg-white cursor-pointer"
+                              className="text-[11px] text-[#191919] font-bold flex items-center gap-1 hover:text-[#e75325] border border-neutral-300 rounded px-2 py-1.5 bg-neutral-50 hover:bg-white cursor-pointer"
                               title="Download Counter QR Code"
                             >
                               <Download className="w-3 h-3" />
