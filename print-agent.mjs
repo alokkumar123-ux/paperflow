@@ -1,34 +1,46 @@
-import "dotenv/config";
 import fs from "fs";
 import path from "path";
 import http from "http";
 import { exec } from "child_process";
 import { promisify } from "util";
-import admin from "firebase-admin";
+import { getApps, initializeApp, cert } from "firebase-admin/app";
+import { getFirestore, FieldValue } from "firebase-admin/firestore";
 
 const execAsync = promisify(exec);
 
 // Initialize Firebase Admin
-if (!admin.apps.length) {
-  try {
-    const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-    if (serviceAccountJson) {
-      const cert = JSON.parse(serviceAccountJson);
-      admin.initializeApp({
-        credential: admin.credential.cert(cert),
-        storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-      });
-      console.log("✅ Firebase Admin initialized successfully.");
-    } else {
-      admin.initializeApp();
+if (getApps().length === 0) {
+  let serviceAccount = null;
+
+  const localKeyPath = path.join(process.cwd(), "service-account.json");
+  if (fs.existsSync(localKeyPath)) {
+    try {
+      serviceAccount = JSON.parse(fs.readFileSync(localKeyPath, "utf8"));
+    } catch (_) {}
+  }
+
+  if (!serviceAccount && process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    try {
+      serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+    } catch (_) {}
+  }
+
+  if (serviceAccount) {
+    if (serviceAccount.private_key) {
+      serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, "\n");
     }
-  } catch (err) {
-    console.error("❌ Firebase Admin init failed:", err);
-    process.exit(1);
+    initializeApp({
+      credential: cert(serviceAccount),
+      storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "bola-f035f.firebasestorage.app",
+    });
+  } else {
+    initializeApp({
+      projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "bola-f035f",
+    });
   }
 }
 
-const db = admin.firestore();
+const db = getFirestore();
 const SUMATRA_EXE = "D:\\paperflow\\bin\\SumatraPDF.exe";
 const TEMP_DIR = "D:\\paperflow\\.temp_prints";
 
@@ -76,7 +88,6 @@ async function printDocument(orderId, orderData) {
     console.log(`✅ Download complete: ${localFilePath}`);
 
     // 3. Build SumatraPDF Silent Print Command
-    // Settings: copies, simplex/duplex, color/monochrome
     const copies = orderData.copies || 1;
     const isColor = orderData.color === "color";
     const isDuplex = orderData.sides === "duplex";
@@ -94,7 +105,6 @@ async function printDocument(orderId, orderData) {
     if (fs.existsSync(SUMATRA_EXE)) {
       printCmd = `"${SUMATRA_EXE}" -print-to-default -print-settings "${settingsStr}" -silent "${localFilePath}"`;
     } else {
-      // Fallback to Windows native print verb
       printCmd = `powershell -NoProfile -Command "Start-Process -FilePath '${localFilePath}' -Verb Print"`;
     }
 
@@ -107,7 +117,7 @@ async function printDocument(orderId, orderData) {
     // 4. Update order in Firestore to 'ready'
     await db.collection("orders").doc(orderId).update({
       status: "ready",
-      printedAt: admin.firestore.FieldValue.serverTimestamp(),
+      printedAt: FieldValue.serverTimestamp(),
       printedSilently: true,
     });
 
