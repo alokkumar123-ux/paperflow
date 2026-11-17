@@ -104,10 +104,15 @@ export default function TicketOrderPage({
 
   if (loading) {
     return (
-      <div className="min-h-screen paper-grid bg-[var(--background)] flex items-center justify-center p-4">
-        <div className="flex items-center gap-2 font-mono text-xs text-neutral-600 bg-white border border-[#191919] p-4 rounded-xl shadow-[4px_4px_0px_#191919]">
-          <Loader2 className="w-4 h-4 animate-spin text-[#e75325]" />
-          Connecting to counter...
+      <div className="min-h-screen paper-grid bg-[var(--background)] flex items-center justify-center p-4 font-sans">
+        <div className="bg-white border-3 border-[#191919] rounded-2xl p-6 sm:p-8 shadow-[6px_6px_0px_#191919] flex flex-col items-center gap-3 text-center max-w-sm w-full animate-in fade-in">
+          <div className="w-12 h-12 rounded-xl bg-orange-50 border-2 border-[#e75325] flex items-center justify-center shadow-[2px_2px_0px_#191919]">
+            <Loader2 className="w-6 h-6 text-[#e75325] animate-spin" />
+          </div>
+          <div>
+            <h2 className="font-black text-sm text-[#191919]">Loading Print Ticket...</h2>
+            <p className="text-xs text-neutral-500 font-mono mt-0.5">Fetching live status from counter</p>
+          </div>
         </div>
       </div>
     );

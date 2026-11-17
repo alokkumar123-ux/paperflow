@@ -89,6 +89,11 @@ export default function DashboardShopPage({
   const [orders, setOrders] = useState<Order[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [isEditingRates, setIsEditingRates] = useState(false);
+  const [loadingShop, setLoadingShop] = useState(true);
+  const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
+  const [isSavingRates, setIsSavingRates] = useState(false);
+  const [isTogglingOpen, setIsTogglingOpen] = useState(false);
+  const [isCheckingPrinterModal, setIsCheckingPrinterModal] = useState(false);
 
   // Rate editor state
   const [rateBw, setRateBw] = useState(2.0);
@@ -141,6 +146,7 @@ export default function DashboardShopPage({
             duplexDiscount: 0.15,
           });
         }
+        setLoadingShop(false);
       });
       return () => unsub();
     } else {
@@ -170,6 +176,7 @@ export default function DashboardShopPage({
             duplexDiscount: 0.15,
           });
         }
+        setLoadingShop(false);
       });
       return () => unsub();
     }
@@ -222,6 +229,7 @@ export default function DashboardShopPage({
 
   const handleToggleOpen = async () => {
     if (!currentShop) return;
+    setIsTogglingOpen(true);
     try {
       await updateDoc(doc(db, "shops", currentShop.id), {
         isOpen: !currentShop.isOpen,
@@ -229,12 +237,15 @@ export default function DashboardShopPage({
       });
     } catch (e) {
       console.error(e);
+    } finally {
+      setIsTogglingOpen(false);
     }
   };
 
   const handleSaveRates = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentShop) return;
+    setIsSavingRates(true);
     try {
       await updateDoc(doc(db, "shops", currentShop.id), {
         rateBw,
@@ -248,11 +259,14 @@ export default function DashboardShopPage({
     } catch (e) {
       console.error(e);
       alert("Failed to update rates");
+    } finally {
+      setIsSavingRates(false);
     }
   };
 
   // Status transitions
   const handleStatusChange = async (orderId: string, newStatus: Order["status"]) => {
+    setUpdatingOrderId(orderId);
     try {
       if (newStatus === "completed") {
         // Trigger server cleanup to delete file from Firebase Storage
@@ -268,16 +282,21 @@ export default function DashboardShopPage({
       }
     } catch (e) {
       console.error(e);
+    } finally {
+      setUpdatingOrderId(null);
     }
   };
 
   const handleConfirmCash = async (orderId: string) => {
+    setUpdatingOrderId(orderId);
     try {
       await updateDoc(doc(db, "orders", orderId), {
         paymentStatus: "paid_offline",
       });
     } catch (e) {
       console.error(e);
+    } finally {
+      setUpdatingOrderId(null);
     }
   };
 
@@ -378,6 +397,22 @@ export default function DashboardShopPage({
   const readyCount = orders.filter((o) => o.status === "ready").length;
   const completedCount = orders.filter((o) => o.status === "completed").length;
 
+  if (loadingShop) {
+    return (
+      <div className="min-h-screen paper-grid bg-[var(--background)] flex items-center justify-center p-4 font-sans">
+        <div className="bg-white border-3 border-[#191919] rounded-2xl p-6 sm:p-8 shadow-[6px_6px_0px_#191919] flex flex-col items-center gap-3 text-center max-w-sm w-full animate-in fade-in">
+          <div className="w-12 h-12 rounded-xl bg-orange-50 border-2 border-[#e75325] flex items-center justify-center shadow-[2px_2px_0px_#191919]">
+            <Loader2 className="w-6 h-6 text-[#e75325] animate-spin" />
+          </div>
+          <div>
+            <h2 className="font-black text-sm text-[#191919]">Loading Operator Dashboard...</h2>
+            <p className="text-xs text-neutral-500 font-mono mt-0.5">Connecting to counter &amp; live orders</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`min-h-screen paper-grid bg-[var(--background)] text-[#191919] flex flex-col font-sans relative ${currentShop?.isBlocked ? "overflow-hidden" : ""}`}>
       {/* Blocked / Suspended Overlay */}
@@ -471,13 +506,23 @@ export default function DashboardShopPage({
           <div className="flex items-center gap-2">
             <button
               onClick={handleToggleOpen}
-              className={`text-xs font-bold px-3 py-1.5 rounded-lg border-2 border-[#191919] transition shadow-[2px_2px_0px_#191919] ${
+              disabled={isTogglingOpen}
+              className={`text-xs font-bold px-3 py-1.5 rounded-lg border-2 border-[#191919] transition shadow-[2px_2px_0px_#191919] flex items-center gap-1.5 cursor-pointer disabled:opacity-75 ${
                 currentShop?.isOpen
                   ? "bg-rose-50 text-rose-800 hover:bg-rose-100"
                   : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
               }`}
             >
-              {currentShop?.isOpen ? "Close Shop" : "Open Shop"}
+              {isTogglingOpen ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <span>Updating...</span>
+                </>
+              ) : currentShop?.isOpen ? (
+                "Close Shop"
+              ) : (
+                "Open Shop"
+              )}
             </button>
             <button
               onClick={() => setIsEditingRates(!isEditingRates)}
@@ -538,9 +583,18 @@ export default function DashboardShopPage({
               <div>
                 <button
                   type="submit"
-                  className="w-full py-2.5 px-4 bg-[#e75325] text-white font-bold rounded-lg border-2 border-[#191919] shadow-[2px_2px_0px_#191919] flex items-center justify-center gap-1.5 cursor-pointer"
+                  disabled={isSavingRates}
+                  className="w-full py-2.5 px-4 bg-[#e75325] text-white font-bold rounded-lg border-2 border-[#191919] shadow-[2px_2px_0px_#191919] flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-75"
                 >
-                  <Save className="w-3.5 h-3.5" /> Save Rates
+                  {isSavingRates ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving Rates...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-3.5 h-3.5" /> Save Rates
+                    </>
+                  )}
                 </button>
               </div>
             </form>
@@ -710,9 +764,15 @@ export default function DashboardShopPage({
                       ) : (
                         <button
                           onClick={() => handleConfirmCash(order.id)}
-                          className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-400 px-2.5 py-1 rounded transition shadow-sm"
+                          disabled={updatingOrderId === order.id}
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 border border-amber-400 px-2.5 py-1 rounded transition shadow-sm disabled:opacity-75 cursor-pointer"
                         >
-                          <Banknote className="w-3.5 h-3.5 text-amber-700" /> Confirm Cash
+                          {updatingOrderId === order.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-700" />
+                          ) : (
+                            <Banknote className="w-3.5 h-3.5 text-amber-700" />
+                          )}
+                          <span>Confirm Cash</span>
                         </button>
                       )}
                     </div>
@@ -740,10 +800,10 @@ export default function DashboardShopPage({
                       {order.status === "queued" && (
                         <button
                           onClick={() => handleStartPrinting(order)}
-                          disabled={checkingPrinterForOrderId === order.id}
-                          className="w-full bg-[#191919] hover:bg-neutral-800 text-white px-3 py-2 rounded-lg text-xs font-bold border-2 border-[#191919] shadow-[2px_2px_0px_#191919] transition flex items-center justify-center gap-1.5 hover:translate-x-0.5 hover:translate-y-0.5"
+                          disabled={checkingPrinterForOrderId === order.id || updatingOrderId === order.id}
+                          className="w-full bg-[#191919] hover:bg-neutral-800 text-white px-3 py-2 rounded-lg text-xs font-bold border-2 border-[#191919] shadow-[2px_2px_0px_#191919] transition flex items-center justify-center gap-1.5 hover:translate-x-0.5 hover:translate-y-0.5 disabled:opacity-75 cursor-pointer"
                         >
-                          {checkingPrinterForOrderId === order.id ? (
+                          {checkingPrinterForOrderId === order.id || updatingOrderId === order.id ? (
                             <>
                               <Loader2 className="w-3.5 h-3.5 animate-spin text-[#e75325]" /> Checking Printer...
                             </>
@@ -758,18 +818,36 @@ export default function DashboardShopPage({
                       {order.status === "printing" && (
                         <button
                           onClick={() => handleStatusChange(order.id, "ready")}
-                          className="w-full bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-xs font-bold border-2 border-[#191919] shadow-[2px_2px_0px_#191919] transition flex items-center justify-center gap-1.5"
+                          disabled={updatingOrderId === order.id}
+                          className="w-full bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-xs font-bold border-2 border-[#191919] shadow-[2px_2px_0px_#191919] transition flex items-center justify-center gap-1.5 disabled:opacity-75 cursor-pointer"
                         >
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Mark Ready
+                          {updatingOrderId === order.id ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Updating...
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Mark Ready
+                            </>
+                          )}
                         </button>
                       )}
 
                       {order.status === "ready" && (
                         <button
                           onClick={() => handleStatusChange(order.id, "completed")}
-                          className="w-full bg-[#e75325] hover:bg-[#d9481c] text-white px-3 py-2 rounded-lg text-xs font-bold border-2 border-[#191919] shadow-[2px_2px_0px_#191919] transition flex items-center justify-center gap-1.5"
+                          disabled={updatingOrderId === order.id}
+                          className="w-full bg-[#e75325] hover:bg-[#d9481c] text-white px-3 py-2 rounded-lg text-xs font-bold border-2 border-[#191919] shadow-[2px_2px_0px_#191919] transition flex items-center justify-center gap-1.5 disabled:opacity-75 cursor-pointer"
                         >
-                          Deliver & Cleanup
+                          {updatingOrderId === order.id ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Cleaning up...
+                            </>
+                          ) : (
+                            <>
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Deliver &amp; Cleanup
+                            </>
+                          )}
                         </button>
                       )}
 
@@ -874,15 +952,29 @@ export default function DashboardShopPage({
                 {/* Check Again Button */}
                 <button
                   type="button"
-                  onClick={() => {
-                    if (printerModal.order) {
-                      handleStartPrinting(printerModal.order);
+                  disabled={isCheckingPrinterModal}
+                  onClick={async () => {
+                    if (!printerModal?.order) return;
+                    setIsCheckingPrinterModal(true);
+                    try {
+                      await handleStartPrinting(printerModal.order);
+                    } finally {
+                      setIsCheckingPrinterModal(false);
                     }
                   }}
-                  className="w-full py-2.5 px-4 bg-[#e75325] hover:bg-[#d9481c] text-white font-black text-xs rounded-xl border-2 border-[#191919] shadow-[3px_3px_0px_#191919] transition flex items-center justify-center gap-2 hover:translate-x-0.5 hover:translate-y-0.5 cursor-pointer"
+                  className="w-full py-2.5 px-4 bg-[#e75325] hover:bg-[#d9481c] text-white font-black text-xs rounded-xl border-2 border-[#191919] shadow-[3px_3px_0px_#191919] transition flex items-center justify-center gap-2 hover:translate-x-0.5 hover:translate-y-0.5 cursor-pointer disabled:opacity-75"
                 >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  Check Connection &amp; Print Again
+                  {isCheckingPrinterModal ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Checking connection...</span>
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Check Connection &amp; Print Again</span>
+                    </>
+                  )}
                 </button>
 
                 {/* Print via Browser Dialog Anyway */}

@@ -34,6 +34,7 @@ import {
   Unlock,
   Trash2,
   AlertTriangle,
+  Loader2,
 } from "lucide-react";
 
 interface Shop {
@@ -62,6 +63,7 @@ export default function SuperAdminSecretPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
+  const [loadingData, setLoadingData] = useState(true);
   const [actionLoadingShopId, setActionLoadingShopId] = useState<string | null>(null);
   const [deleteShopTarget, setDeleteShopTarget] = useState<Shop | null>(null);
 
@@ -95,6 +97,7 @@ export default function SuperAdminSecretPage() {
         });
       });
       setShops(items);
+      setLoadingData(false);
     });
 
     const qOrders = query(collection(db, "orders"));
@@ -120,6 +123,7 @@ export default function SuperAdminSecretPage() {
   }, []);
 
   const handleToggleStatus = async (shop: Shop) => {
+    setActionLoadingShopId(shop.id);
     try {
       await updateDoc(doc(db, "shops", shop.id), {
         isOpen: !shop.isOpen,
@@ -127,6 +131,8 @@ export default function SuperAdminSecretPage() {
       });
     } catch (err) {
       console.error("Error toggling shop status:", err);
+    } finally {
+      setActionLoadingShopId(null);
     }
   };
 
@@ -404,7 +410,18 @@ export default function SuperAdminSecretPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-200 font-sans">
-                {filteredShops.length === 0 ? (
+                {loadingData ? (
+                  <tr>
+                    <td colSpan={6} className="py-16 text-center font-mono">
+                      <div className="flex flex-col items-center justify-center gap-2.5">
+                        <div className="w-10 h-10 rounded-xl bg-orange-50 border-2 border-[#e75325] flex items-center justify-center shadow-[2px_2px_0px_#191919]">
+                          <Loader2 className="w-5 h-5 text-[#e75325] animate-spin" />
+                        </div>
+                        <p className="font-bold text-xs text-[#191919]">Loading print shops &amp; counters...</p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : filteredShops.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="py-12 text-center text-neutral-400 font-mono">
                       No shops found. Click "Add New Shop" to create your first print shop.
@@ -436,13 +453,19 @@ export default function SuperAdminSecretPage() {
                             ) : (
                               <button
                                 onClick={() => handleToggleStatus(shop)}
-                                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border transition cursor-pointer ${
+                                disabled={actionLoadingShopId === shop.id}
+                                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border transition cursor-pointer disabled:opacity-75 ${
                                   shop.isOpen
                                     ? "bg-emerald-50 text-emerald-800 border-emerald-400 hover:bg-emerald-100"
                                     : "bg-neutral-100 text-neutral-700 border-neutral-300 hover:bg-neutral-200"
                                 }`}
                               >
-                                {shop.isOpen ? (
+                                {actionLoadingShopId === shop.id ? (
+                                  <>
+                                    <Loader2 className="w-3 h-3 animate-spin text-neutral-600" />
+                                    <span>Updating...</span>
+                                  </>
+                                ) : shop.isOpen ? (
                                   <>
                                     <CheckCircle className="w-3 h-3 text-emerald-600" /> OPEN
                                   </>
@@ -496,14 +519,16 @@ export default function SuperAdminSecretPage() {
                             <button
                               onClick={() => handleToggleBlock(shop)}
                               disabled={actionLoadingShopId === shop.id}
-                              className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded border border-[#191919] transition shadow-[1px_1px_0px_#191919] cursor-pointer ${
+                              className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded border border-[#191919] transition shadow-[1px_1px_0px_#191919] cursor-pointer disabled:opacity-75 ${
                                 shop.isBlocked
                                   ? "bg-amber-100 text-amber-900 hover:bg-amber-200"
                                   : "bg-white text-neutral-800 hover:bg-rose-50 hover:text-rose-700"
                               }`}
                               title={shop.isBlocked ? "Unblock this shop" : "Block this shop"}
                             >
-                              {shop.isBlocked ? (
+                              {actionLoadingShopId === shop.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin text-neutral-700" />
+                              ) : shop.isBlocked ? (
                                 <>
                                   <Unlock className="w-3 h-3 text-amber-700" /> Unblock
                                 </>
@@ -516,7 +541,7 @@ export default function SuperAdminSecretPage() {
                             <button
                               onClick={() => setDeleteShopTarget(shop)}
                               disabled={actionLoadingShopId === shop.id}
-                              className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-600 hover:text-white border border-rose-300 px-2.5 py-1 rounded shadow-[1px_1px_0px_#191919] transition cursor-pointer"
+                              className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-600 hover:text-white border border-rose-300 px-2.5 py-1 rounded shadow-[1px_1px_0px_#191919] transition cursor-pointer disabled:opacity-50"
                               title="Delete shop permanently"
                             >
                               <Trash2 className="w-3 h-3" />
@@ -619,9 +644,16 @@ export default function SuperAdminSecretPage() {
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="flex-1 py-2 px-3 bg-[#e75325] hover:bg-[#d9481c] text-white font-bold rounded-lg border-2 border-[#191919] shadow-[3px_3px_0px_#191919] cursor-pointer"
+                  className="flex-1 py-2 px-3 bg-[#e75325] hover:bg-[#d9481c] text-white font-bold rounded-lg border-2 border-[#191919] shadow-[3px_3px_0px_#191919] cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-75"
                 >
-                  {isSubmitting ? "Creating..." : "Create Shop"}
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Creating...</span>
+                    </>
+                  ) : (
+                    "Create Shop"
+                  )}
                 </button>
               </div>
             </form>
@@ -674,10 +706,19 @@ export default function SuperAdminSecretPage() {
                 type="button"
                 onClick={handleConfirmDelete}
                 disabled={actionLoadingShopId === deleteShopTarget.id}
-                className="px-4 py-2 bg-rose-600 text-white border-2 border-[#191919] rounded-xl text-xs font-bold hover:bg-rose-700 transition shadow-[2px_2px_0px_#191919] flex items-center gap-1.5 cursor-pointer"
+                className="px-4 py-2 bg-rose-600 text-white border-2 border-[#191919] rounded-xl text-xs font-bold hover:bg-rose-700 transition shadow-[2px_2px_0px_#191919] flex items-center gap-1.5 cursor-pointer disabled:opacity-75"
               >
-                <Trash2 className="w-3.5 h-3.5" />
-                {actionLoadingShopId === deleteShopTarget.id ? "Deleting..." : "Yes, Delete Shop"}
+                {actionLoadingShopId === deleteShopTarget.id ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Yes, Delete Shop</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

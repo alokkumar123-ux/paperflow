@@ -65,6 +65,7 @@ export default function ShopCustomerPage({
   // Multi-file state
   const [fileList, setFileList] = useState<UploadedFileItem[]>([]);
   const [activePdfModalItem, setActivePdfModalItem] = useState<UploadedFileItem | null>(null);
+  const [isDetectingFiles, setIsDetectingFiles] = useState(false);
 
   // Print Specifications
   const [colorMode, setColorMode] = useState<"bw" | "color">("bw");
@@ -158,25 +159,29 @@ export default function ShopCustomerPage({
   // Handle adding one or multiple files
   const handleFilesAdded = async (filesToAdd: FileList | null) => {
     if (!filesToAdd || filesToAdd.length === 0) return;
+    setIsDetectingFiles(true);
+    try {
+      const newItems: UploadedFileItem[] = [];
 
-    const newItems: UploadedFileItem[] = [];
+      for (let i = 0; i < filesToAdd.length; i++) {
+        const f = filesToAdd[i];
+        const pages = await countFilePages(f);
+        newItems.push({
+          id: `${Date.now()}_${i}_${Math.random().toString(36).substring(2, 6)}`,
+          file: f,
+          name: f.name,
+          size: f.size,
+          totalPages: pages,
+          pageCount: pages,
+          pageRange: `1-${pages}`,
+          type: f.type,
+        });
+      }
 
-    for (let i = 0; i < filesToAdd.length; i++) {
-      const f = filesToAdd[i];
-      const pages = await countFilePages(f);
-      newItems.push({
-        id: `${Date.now()}_${i}_${Math.random().toString(36).substring(2, 6)}`,
-        file: f,
-        name: f.name,
-        size: f.size,
-        totalPages: pages,
-        pageCount: pages,
-        pageRange: `1-${pages}`,
-        type: f.type,
-      });
+      setFileList((prev) => [...prev, ...newItems]);
+    } finally {
+      setIsDetectingFiles(false);
     }
-
-    setFileList((prev) => [...prev, ...newItems]);
   };
 
   const removeFile = (id: string) => {
@@ -327,6 +332,22 @@ export default function ShopCustomerPage({
     }
   };
 
+  if (loadingShop) {
+    return (
+      <div className="min-h-screen paper-grid bg-[var(--background)] flex items-center justify-center p-4 font-sans">
+        <div className="bg-white border-3 border-[#191919] rounded-2xl p-6 sm:p-8 shadow-[6px_6px_0px_#191919] flex flex-col items-center gap-3 text-center max-w-sm w-full animate-in fade-in">
+          <div className="w-12 h-12 rounded-xl bg-orange-50 border-2 border-[#e75325] flex items-center justify-center shadow-[2px_2px_0px_#191919]">
+            <Loader2 className="w-6 h-6 text-[#e75325] animate-spin" />
+          </div>
+          <div>
+            <h2 className="font-black text-sm text-[#191919]">Connecting to Print Counter...</h2>
+            <p className="text-xs text-neutral-500 font-mono mt-0.5">Fetching rates &amp; print specs</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen paper-grid bg-[var(--background)] text-[#191919] flex flex-col font-sans">
       {/* Mobile-Friendly Sleek Top Header */}
@@ -416,23 +437,42 @@ export default function ShopCustomerPage({
             </div>
 
             {/* Dropzone */}
-            <label className="border-2 border-dashed border-neutral-300 hover:border-[#e75325] rounded-xl p-5 sm:p-6 flex flex-col items-center justify-center gap-2.5 cursor-pointer bg-neutral-50/60 hover:bg-neutral-50 transition-all text-center">
-              <div className="w-11 h-11 rounded-full bg-white border border-neutral-200 flex items-center justify-center text-blue-600 shadow-xs">
-                <Upload className="w-5 h-5" />
-              </div>
-              <div>
-                <span className="text-xs font-bold text-[#191919] block">
-                  Tap to upload files (multiple allowed)
-                </span>
-                <span className="text-[11px] text-neutral-400 font-mono">
-                  Select PDFs, Images (JPG, PNG), or Word docs
-                </span>
-              </div>
+            <label className={`border-2 border-dashed border-neutral-300 hover:border-[#e75325] rounded-xl p-5 sm:p-6 flex flex-col items-center justify-center gap-2.5 cursor-pointer bg-neutral-50/60 hover:bg-neutral-50 transition-all text-center ${isDetectingFiles ? "opacity-75 pointer-events-none" : ""}`}>
+              {isDetectingFiles ? (
+                <div className="flex flex-col items-center gap-2 py-2">
+                  <div className="w-11 h-11 rounded-full bg-orange-50 border border-orange-200 flex items-center justify-center shadow-xs">
+                    <Loader2 className="w-5 h-5 text-[#e75325] animate-spin" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-[#e75325] block">
+                      Analyzing files &amp; detecting page counts...
+                    </span>
+                    <span className="text-[11px] text-neutral-400 font-mono">
+                      Please wait a moment
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="w-11 h-11 rounded-full bg-white border border-neutral-200 flex items-center justify-center text-blue-600 shadow-xs">
+                    <Upload className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-[#191919] block">
+                      Tap to upload files (multiple allowed)
+                    </span>
+                    <span className="text-[11px] text-neutral-400 font-mono">
+                      Select PDFs, Images (JPG, PNG), or Word docs
+                    </span>
+                  </div>
+                </>
+              )}
               <input
                 type="file"
                 multiple
                 accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp"
                 className="hidden"
+                disabled={isDetectingFiles || isSubmitting}
                 onChange={(e) => handleFilesAdded(e.target.files)}
               />
             </label>
@@ -535,14 +575,24 @@ export default function ShopCustomerPage({
                 </div>
 
                 {/* Add More Files Button */}
-                <label className="w-full py-2 bg-white hover:bg-neutral-50 border-2 border-dashed border-[#191919] rounded-xl flex items-center justify-center gap-1.5 text-xs font-bold text-[#191919] cursor-pointer transition shadow-xs">
-                  <Plus className="w-4 h-4 text-[#e75325]" />
-                  Add More Files
+                <label className={`w-full py-2 bg-white hover:bg-neutral-50 border-2 border-dashed border-[#191919] rounded-xl flex items-center justify-center gap-1.5 text-xs font-bold text-[#191919] cursor-pointer transition shadow-xs ${isDetectingFiles ? "opacity-60 pointer-events-none" : ""}`}>
+                  {isDetectingFiles ? (
+                    <>
+                      <Loader2 className="w-4 h-4 text-[#e75325] animate-spin" />
+                      <span>Reading files...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4 text-[#e75325]" />
+                      <span>Add More Files</span>
+                    </>
+                  )}
                   <input
                     type="file"
                     multiple
                     accept=".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp"
                     className="hidden"
+                    disabled={isDetectingFiles || isSubmitting}
                     onChange={(e) => handleFilesAdded(e.target.files)}
                   />
                 </label>
