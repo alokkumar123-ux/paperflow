@@ -23,17 +23,13 @@ import {
   FileText,
   User,
   ArrowLeft,
-  RefreshCw,
   Sliders,
   ExternalLink,
   Save,
   Download,
   Banknote,
   Sparkles,
-  AlertTriangle,
-  X,
   Loader2,
-  WifiOff,
   Lock,
 } from "lucide-react";
 
@@ -93,24 +89,14 @@ export default function DashboardShopPage({
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [isSavingRates, setIsSavingRates] = useState(false);
   const [isTogglingOpen, setIsTogglingOpen] = useState(false);
-  const [isCheckingPrinterModal, setIsCheckingPrinterModal] = useState(false);
 
   // Rate editor state
   const [rateBw, setRateBw] = useState(2.0);
   const [rateColor, setRateColor] = useState(10.0);
   const [duplexDiscount, setDuplexDiscount] = useState(0.15);
 
-  // Printer status & modal state
+  // Printer state
   const [checkingPrinterForOrderId, setCheckingPrinterForOrderId] = useState<string | null>(null);
-  const [printerModal, setPrinterModal] = useState<{
-    isOpen: boolean;
-    order: Order | null;
-    message: string;
-    offlinePrinters: any[];
-    virtualPrinters: any[];
-    defaultPrinter: string | null;
-  } | null>(null);
-  const [printSuccessToast, setPrintSuccessToast] = useState<string | null>(null);
 
   // 1. Fetch & Listen to Shop
   useEffect(() => {
@@ -303,88 +289,22 @@ export default function DashboardShopPage({
   const handleStartPrinting = async (order: Order) => {
     setCheckingPrinterForOrderId(order.id);
     try {
-      // 1. Check system printer status
-      const res = await fetch("/api/print/status");
-      const data = await res.json();
+      // 1. Mark as printing in Firestore immediately
+      await updateDoc(doc(db, "orders", order.id), { status: "printing" });
 
-      if (!data.hasConnectedPrinter) {
-        // Physical printer not connected!
-        setPrinterModal({
-          isOpen: true,
-          order,
-          message: data.message || "No physical printer connected to this computer",
-          offlinePrinters: data.offlinePrinters || [],
-          virtualPrinters: data.virtualPrinters || [],
-          defaultPrinter: data.defaultPrinter,
-        });
-        setCheckingPrinterForOrderId(null);
-        return;
-      }
-
-      // 2. Physical printer is connected! Dispatch print spool automatically
+      // 2. Open the file for printing via browser's native print dialog
       const fileToPrint = order.fileDownloadUrl || order.files?.[0]?.url;
       if (fileToPrint) {
-        await fetch("/api/print/spool", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            orderId: order.id,
-            fileName: order.fileName,
-            fileUrl: fileToPrint,
-          }),
-        });
+        window.open(fileToPrint, "_blank");
+      } else {
+        alert("No file found. Please download manually from the Download button.");
       }
-
-      // Update status to printing
-      await handleStatusChange(order.id, "printing");
-      setPrintSuccessToast(
-        `Print job dispatched to ${data.connectedPrinters[0]?.name || "default printer"}!`
-      );
-      setTimeout(() => setPrintSuccessToast(null), 5000);
     } catch (err: any) {
       console.error("Print error:", err);
-      setPrinterModal({
-        isOpen: true,
-        order,
-        message: "Failed to connect to local printer spooler.",
-        offlinePrinters: [],
-        virtualPrinters: [],
-        defaultPrinter: null,
-      });
+      alert("Failed to start printing. Please try downloading and printing manually.");
     } finally {
       setCheckingPrinterForOrderId(null);
     }
-  };
-
-  const printViaBrowser = (order: Order) => {
-    const fileUrl = order.fileDownloadUrl || order.files?.[0]?.url;
-    if (!fileUrl) {
-      alert("No file available to print.");
-      return;
-    }
-
-    // Advance status to printing
-    handleStatusChange(order.id, "printing");
-    setPrinterModal(null);
-
-    // Trigger browser print dialog directly without manual downloading
-    const iframe = document.createElement("iframe");
-    iframe.style.position = "fixed";
-    iframe.style.right = "0";
-    iframe.style.bottom = "0";
-    iframe.style.width = "0";
-    iframe.style.height = "0";
-    iframe.style.border = "0";
-    iframe.src = fileUrl;
-    iframe.onload = () => {
-      try {
-        iframe.contentWindow?.focus();
-        iframe.contentWindow?.print();
-      } catch (e) {
-        window.open(fileUrl, "_blank");
-      }
-    };
-    document.body.appendChild(iframe);
   };
 
   const filteredOrders = orders.filter((o) => {
@@ -805,7 +725,7 @@ export default function DashboardShopPage({
                         >
                           {checkingPrinterForOrderId === order.id || updatingOrderId === order.id ? (
                             <>
-                              <Loader2 className="w-3.5 h-3.5 animate-spin text-[#e75325]" /> Checking Printer...
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-[#e75325]" /> Opening File...
                             </>
                           ) : (
                             <>
@@ -874,135 +794,6 @@ export default function DashboardShopPage({
         )}
       </main>
 
-      {/* Toast Notification */}
-      {printSuccessToast && (
-        <div className="fixed bottom-5 right-5 z-50 bg-[#191919] text-white border-2 border-emerald-500 rounded-xl px-4 py-3 shadow-[4px_4px_0px_#191919] flex items-center gap-2.5 text-xs font-mono animate-in fade-in slide-in-from-bottom-2">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span>{printSuccessToast}</span>
-        </div>
-      )}
-
-      {/* Printer Not Connected Modal */}
-      {printerModal && printerModal.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="bg-[var(--background)] border-3 border-[#191919] rounded-2xl w-full max-w-md shadow-[8px_8px_0px_#191919] overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            {/* Modal Header */}
-            <div className="bg-rose-50 border-b-2 border-[#191919] p-4 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-rose-600 text-white flex items-center justify-center font-bold shadow-xs">
-                  <AlertTriangle className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="font-black text-sm text-[#191919]">Printer is Not Connected</h3>
-                  <p className="text-[10px] text-neutral-500 font-mono">
-                    {printerModal.order?.ticketNumber} • {printerModal.order?.fileName}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setPrinterModal(null)}
-                className="p-1.5 rounded-lg border border-[#191919] bg-white hover:bg-neutral-100 transition shadow-[1px_1px_0px_#191919]"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Modal Content */}
-            <div className="p-5 space-y-4 text-xs font-sans">
-              <div className="bg-white border-2 border-[#191919] rounded-xl p-3.5 space-y-2 shadow-[2px_2px_0px_#191919]">
-                <div className="flex items-start gap-2">
-                  <WifiOff className="w-4 h-4 text-rose-600 mt-0.5 shrink-0" />
-                  <div className="text-neutral-800">
-                    <p className="font-bold text-xs">{printerModal.message}</p>
-                    <p className="text-[11px] text-neutral-500 font-mono mt-1">
-                      No physical printer (e.g. HP, Canon, Epson, Brother via USB or Wi-Fi) is currently online and ready to print.
-                    </p>
-                  </div>
-                </div>
-
-                {printerModal.defaultPrinter && (
-                  <div className="pt-2 border-t border-neutral-100 flex items-center justify-between text-[10px] font-mono">
-                    <span className="text-neutral-400">Current Default:</span>
-                    <span className="font-bold text-neutral-700 bg-neutral-100 px-1.5 py-0.5 rounded">
-                      {printerModal.defaultPrinter}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* Troubleshooting Checklist */}
-              <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-3 space-y-1.5 text-[11px] font-mono text-neutral-600">
-                <span className="font-bold text-neutral-800 block text-xs">Troubleshooting Steps:</span>
-                <div className="flex items-center gap-1.5">
-                  <span className="w-4 h-4 rounded-full bg-neutral-200 text-neutral-700 flex items-center justify-center font-bold text-[10px]">1</span>
-                  <span>Plug in your printer&apos;s USB cable or connect Wi-Fi</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="w-4 h-4 rounded-full bg-neutral-200 text-neutral-700 flex items-center justify-center font-bold text-[10px]">2</span>
-                  <span>Turn ON your physical printer power switch</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="w-4 h-4 rounded-full bg-neutral-200 text-neutral-700 flex items-center justify-center font-bold text-[10px]">3</span>
-                  <span>Ensure paper tray has sheets loaded</span>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="space-y-2 pt-1">
-                {/* Check Again Button */}
-                <button
-                  type="button"
-                  disabled={isCheckingPrinterModal}
-                  onClick={async () => {
-                    if (!printerModal?.order) return;
-                    setIsCheckingPrinterModal(true);
-                    try {
-                      await handleStartPrinting(printerModal.order);
-                    } finally {
-                      setIsCheckingPrinterModal(false);
-                    }
-                  }}
-                  className="w-full py-2.5 px-4 bg-[#e75325] hover:bg-[#d9481c] text-white font-black text-xs rounded-xl border-2 border-[#191919] shadow-[3px_3px_0px_#191919] transition flex items-center justify-center gap-2 hover:translate-x-0.5 hover:translate-y-0.5 cursor-pointer disabled:opacity-75"
-                >
-                  {isCheckingPrinterModal ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Checking connection...</span>
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5" />
-                      <span>Check Connection &amp; Print Again</span>
-                    </>
-                  )}
-                </button>
-
-                {/* Print via Browser Dialog Anyway */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (printerModal.order) {
-                      printViaBrowser(printerModal.order);
-                    }
-                  }}
-                  className="w-full py-2.5 px-4 bg-white hover:bg-neutral-100 text-[#191919] font-bold text-xs rounded-xl border-2 border-[#191919] shadow-[2px_2px_0px_#191919] transition flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <Printer className="w-3.5 h-3.5 text-blue-600" />
-                  Print via Browser Dialog (No Download Needed)
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setPrinterModal(null)}
-                  className="w-full py-2 text-center text-xs font-mono text-neutral-500 hover:text-black cursor-pointer"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
       </div>
     </div>
   );
