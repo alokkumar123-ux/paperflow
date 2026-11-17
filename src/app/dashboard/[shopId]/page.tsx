@@ -61,7 +61,6 @@ interface Order {
   notes?: string;
   paymentStatus: "unpaid" | "paid_offline";
   status: "queued" | "printing" | "ready" | "completed";
-  printError?: string | null;
   createdAt?: any;
 }
 
@@ -73,8 +72,6 @@ interface Shop {
   rateBw: number;
   rateColor: number;
   duplexDiscount: number;
-  printerName?: string | null;
-  isPrinterOnline?: boolean;
 }
 
 export default function DashboardShopPage({
@@ -99,52 +96,8 @@ export default function DashboardShopPage({
   const [rateColor, setRateColor] = useState(10.0);
   const [duplexDiscount, setDuplexDiscount] = useState(0.15);
 
-  // Printer live status state
-  const [printerStatus, setPrinterStatus] = useState<{
-    name: string | null;
-    isOnline: boolean;
-  }>({
-    name: null,
-    isOnline: false,
-  });
-
   // Printer action state
   const [checkingPrinterForOrderId, setCheckingPrinterForOrderId] = useState<string | null>(null);
-
-  // Live printer status polling from local desktop agent (with Firestore fallback)
-  useEffect(() => {
-    let isMounted = true;
-    const checkLocalPrinter = async () => {
-      try {
-        const res = await fetch("http://127.0.0.1:4141/printer-status", { cache: "no-store" });
-        if (res.ok) {
-          const data = await res.json();
-          if (isMounted) {
-            setPrinterStatus({
-              name: data.connected ? data.name : null,
-              isOnline: Boolean(data.connected && data.isOnline),
-            });
-            return;
-          }
-        }
-      } catch (_) {}
-
-      // Fallback to Firestore shop state
-      if (isMounted && currentShop) {
-        setPrinterStatus({
-          name: currentShop.printerName || null,
-          isOnline: Boolean(currentShop.isPrinterOnline),
-        });
-      }
-    };
-
-    checkLocalPrinter();
-    const interval = setInterval(checkLocalPrinter, 3000);
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
-  }, [currentShop]);
 
   // 1. Fetch & Listen to Shop
   useEffect(() => {
@@ -165,8 +118,6 @@ export default function DashboardShopPage({
             rateBw: data.rateBw ?? data.rate_bw ?? 2.0,
             rateColor: data.rateColor ?? data.rate_color ?? 10.0,
             duplexDiscount: data.duplexDiscount ?? data.duplex_discount ?? 0.15,
-            printerName: data.printerName || null,
-            isPrinterOnline: data.isPrinterOnline ?? false,
           });
           setRateBw(data.rateBw ?? data.rate_bw ?? 2.0);
           setRateColor(data.rateColor ?? data.rate_color ?? 10.0);
@@ -197,8 +148,6 @@ export default function DashboardShopPage({
             rateBw: data.rateBw ?? data.rate_bw ?? 2.0,
             rateColor: data.rateColor ?? data.rate_color ?? 10.0,
             duplexDiscount: data.duplexDiscount ?? data.duplex_discount ?? 0.15,
-            printerName: data.printerName || null,
-            isPrinterOnline: data.isPrinterOnline ?? false,
           });
           setRateBw(data.rateBw ?? data.rate_bw ?? 2.0);
           setRateColor(data.rateColor ?? data.rate_color ?? 10.0);
@@ -253,7 +202,6 @@ export default function DashboardShopPage({
           notes: data.notes,
           paymentStatus: data.paymentStatus || "unpaid",
           status: data.status || "queued",
-          printError: data.printError || null,
           createdAt: data.createdAt,
         });
       });
@@ -340,28 +288,18 @@ export default function DashboardShopPage({
   };
 
   const handleStartPrinting = async (order: Order) => {
-    // Try printing via desktop agent or fallback to browser print
-    const fileToPrint = order.fileDownloadUrl || order.files?.[0]?.url;
-    if (fileToPrint && !currentShop?.printerName) {
-      window.open(`/print/${order.id}`, "_blank", "width=900,height=800");
-    }
-
     setCheckingPrinterForOrderId(order.id);
     try {
       // 1. Mark as printing in Firestore immediately
       await updateDoc(doc(db, "orders", order.id), {
         status: "printing",
-        printError: null,
       });
 
-      // 2. Also notify local agent on port 4141 for instant response
-      try {
-        fetch("http://127.0.0.1:4141/print", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ orderId: order.id }),
-        }).catch(() => {});
-      } catch (_) {}
+      // 2. Open document in a new tab for printing
+      const fileToPrint = order.fileDownloadUrl || order.files?.[0]?.url;
+      if (fileToPrint) {
+        window.open(fileToPrint, "_blank");
+      }
     } catch (err: any) {
       console.error("Print error:", err);
       alert("Failed to start printing: " + (err?.message || "Unknown error"));
@@ -482,25 +420,7 @@ export default function DashboardShopPage({
                     {currentShop?.isOpen ? "● OPEN" : "○ CLOSED"}
                   </span>
 
-                  {/* Connected Printer Status Indicator */}
-                  {currentShop?.printerName || printerStatus.name ? (
-                    <span
-                      className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-800 border-emerald-400 flex items-center gap-1 font-mono shadow-xs"
-                      title="Physical printer connected and ready"
-                    >
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
-                      <Printer className="w-3 h-3 text-emerald-700" />
-                      <span>{currentShop?.printerName || printerStatus.name} (Ready)</span>
-                    </span>
-                  ) : (
-                    <span
-                      className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-neutral-100 text-neutral-700 border-neutral-300 flex items-center gap-1 font-mono shadow-xs"
-                      title="Printer ready for desktop or browser dispatch"
-                    >
-                      <Printer className="w-3 h-3 text-neutral-600" />
-                      <span>Printer Ready</span>
-                    </span>
-                  )}
+                  
                 </h1>
               </div>
             </div>
@@ -755,12 +675,7 @@ export default function DashboardShopPage({
                       </div>
                     )}
 
-                    {order.printError && (
-                      <div className="mt-2 p-2 bg-rose-50 text-rose-800 rounded border border-rose-300 text-[11px] flex items-center gap-1.5 font-mono">
-                        <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                        <span><strong>Print Halted:</strong> {order.printError}</span>
-                      </div>
-                    )}
+                    
                   </div>
                 </div>
 
@@ -826,7 +741,7 @@ export default function DashboardShopPage({
                         >
                           {checkingPrinterForOrderId === order.id || updatingOrderId === order.id ? (
                             <>
-                              <Loader2 className="w-3.5 h-3.5 animate-spin text-[#e75325]" /> Printing to Canon G2010...
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-[#e75325]" /> Opening Document...
                             </>
                           ) : (
                             <>
