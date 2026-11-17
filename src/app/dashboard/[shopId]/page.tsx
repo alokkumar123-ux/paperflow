@@ -32,6 +32,8 @@ import {
   Loader2,
   Lock,
   AlertTriangle,
+  Usb,
+  X,
 } from "lucide-react";
 
 interface UploadedFileRef {
@@ -72,6 +74,7 @@ interface Shop {
   rateBw: number;
   rateColor: number;
   duplexDiscount: number;
+  printerName?: string;
 }
 
 export default function DashboardShopPage({
@@ -90,6 +93,83 @@ export default function DashboardShopPage({
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [isSavingRates, setIsSavingRates] = useState(false);
   const [isTogglingOpen, setIsTogglingOpen] = useState(false);
+
+  // Connected printer state & WebUSB
+  const [usbPrinterName, setUsbPrinterName] = useState<string | null>(null);
+  const [showPrinterModal, setShowPrinterModal] = useState(false);
+  const [selectedPrinterInput, setSelectedPrinterInput] = useState("");
+  const [isDetectingUsb, setIsDetectingUsb] = useState(false);
+  const [isSavingPrinter, setIsSavingPrinter] = useState(false);
+
+  // Detect paired WebUSB printer on mount
+  useEffect(() => {
+    if (typeof window !== "undefined" && "usb" in navigator) {
+      (navigator as any).usb
+        .getDevices()
+        .then((devices: any[]) => {
+          if (devices.length > 0) {
+            const prod = devices[0].productName || devices[0].manufacturerName;
+            if (prod) setUsbPrinterName(prod);
+          }
+        })
+        .catch(() => {});
+
+      const handleConnect = (e: any) => {
+        const prod = e.device?.productName || e.device?.manufacturerName;
+        if (prod) setUsbPrinterName(prod);
+      };
+      const handleDisconnect = () => {
+        setUsbPrinterName(null);
+      };
+
+      (navigator as any).usb.addEventListener("connect", handleConnect);
+      (navigator as any).usb.addEventListener("disconnect", handleDisconnect);
+
+      return () => {
+        (navigator as any).usb.removeEventListener("connect", handleConnect);
+        (navigator as any).usb.removeEventListener("disconnect", handleDisconnect);
+      };
+    }
+  }, []);
+
+  const handleDetectUsbPrinter = async () => {
+    if (typeof window !== "undefined" && "usb" in navigator) {
+      setIsDetectingUsb(true);
+      try {
+        const device = await (navigator as any).usb.requestDevice({ filters: [] });
+        const name = device.productName || device.manufacturerName || "USB Printer";
+        setUsbPrinterName(name);
+        setSelectedPrinterInput(name);
+        if (currentShop) {
+          await updateDoc(doc(db, "shops", currentShop.id), { printerName: name });
+        }
+      } catch (err: any) {
+        if (err.name !== "NotFoundError") {
+          console.error("USB detection error:", err);
+        }
+      } finally {
+        setIsDetectingUsb(false);
+      }
+    } else {
+      alert("WebUSB is not supported in this browser. Please use Chrome or Edge, or select your printer from the list below.");
+    }
+  };
+
+  const handleSavePrinterName = async (nameToSave: string) => {
+    if (!currentShop || !nameToSave.trim()) return;
+    setIsSavingPrinter(true);
+    try {
+      await updateDoc(doc(db, "shops", currentShop.id), {
+        printerName: nameToSave.trim(),
+      });
+      setShowPrinterModal(false);
+    } catch (e) {
+      console.error(e);
+      alert("Failed to save printer name");
+    } finally {
+      setIsSavingPrinter(false);
+    }
+  };
 
   // Rate editor state
   const [rateBw, setRateBw] = useState(2.0);
@@ -118,6 +198,7 @@ export default function DashboardShopPage({
             rateBw: data.rateBw ?? data.rate_bw ?? 2.0,
             rateColor: data.rateColor ?? data.rate_color ?? 10.0,
             duplexDiscount: data.duplexDiscount ?? data.duplex_discount ?? 0.15,
+            printerName: data.printerName || "EPSON L380 Series",
           });
           setRateBw(data.rateBw ?? data.rate_bw ?? 2.0);
           setRateColor(data.rateColor ?? data.rate_color ?? 10.0);
@@ -131,6 +212,7 @@ export default function DashboardShopPage({
             rateBw: 2.0,
             rateColor: 10.0,
             duplexDiscount: 0.15,
+            printerName: "EPSON L380 Series",
           });
         }
         setLoadingShop(false);
@@ -148,6 +230,7 @@ export default function DashboardShopPage({
             rateBw: data.rateBw ?? data.rate_bw ?? 2.0,
             rateColor: data.rateColor ?? data.rate_color ?? 10.0,
             duplexDiscount: data.duplexDiscount ?? data.duplex_discount ?? 0.15,
+            printerName: data.printerName || "EPSON L380 Series",
           });
           setRateBw(data.rateBw ?? data.rate_bw ?? 2.0);
           setRateColor(data.rateColor ?? data.rate_color ?? 10.0);
@@ -161,6 +244,7 @@ export default function DashboardShopPage({
             rateBw: 2.0,
             rateColor: 10.0,
             duplexDiscount: 0.15,
+            printerName: "EPSON L380 Series",
           });
         }
         setLoadingShop(false);
@@ -318,6 +402,8 @@ export default function DashboardShopPage({
   const readyCount = orders.filter((o) => o.status === "ready").length;
   const completedCount = orders.filter((o) => o.status === "completed").length;
 
+  const activePrinter = usbPrinterName || currentShop?.printerName || "EPSON L380 Series";
+
   if (loadingShop) {
     return (
       <div className="min-h-screen paper-grid bg-[var(--background)] flex items-center justify-center p-4 font-sans">
@@ -420,7 +506,20 @@ export default function DashboardShopPage({
                     {currentShop?.isOpen ? "● OPEN" : "○ CLOSED"}
                   </span>
 
-                  
+                  {/* Connected Printer Badge */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedPrinterInput(activePrinter);
+                      setShowPrinterModal(true);
+                    }}
+                    className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-400 flex items-center gap-1.5 transition shadow-[1px_1px_0px_#191919] cursor-pointer"
+                    title="Configured Printer: Click to change or auto-detect via USB"
+                  >
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <Printer className="w-3 h-3 text-emerald-700" />
+                    <span>{activePrinter} (Connected)</span>
+                  </button>
                 </h1>
               </div>
             </div>
@@ -446,6 +545,17 @@ export default function DashboardShopPage({
               ) : (
                 "Open Shop"
               )}
+            </button>
+            <button
+              onClick={() => {
+                setSelectedPrinterInput(activePrinter);
+                setShowPrinterModal(true);
+              }}
+              className="text-xs font-bold px-3 py-1.5 rounded-lg border-2 border-[#191919] bg-white hover:bg-neutral-100 transition shadow-[2px_2px_0px_#191919] flex items-center gap-1.5 cursor-pointer"
+            >
+              <Printer className="w-3.5 h-3.5 text-[#e75325]" />
+              <span className="hidden sm:inline">Printer:</span>
+              <span className="font-mono text-[11px] text-emerald-800 font-bold max-w-[130px] truncate">{activePrinter}</span>
             </button>
             <button
               onClick={() => setIsEditingRates(!isEditingRates)}
@@ -810,6 +920,144 @@ export default function DashboardShopPage({
         )}
       </main>
 
+      {/* Connected Printer Modal */}
+      {showPrinterModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border-3 border-[#191919] rounded-2xl max-w-md w-full p-6 shadow-[8px_8px_0px_#191919] space-y-5 animate-in zoom-in-95">
+            <div className="flex items-center justify-between border-b-2 border-[#191919] pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-[#e75325] text-white flex items-center justify-center font-bold">
+                  <Printer className="w-4 h-4" />
+                </div>
+                <h3 className="font-black text-sm text-[#191919]">Connected Printer Settings</h3>
+              </div>
+              <button
+                onClick={() => setShowPrinterModal(false)}
+                className="p-1 rounded-lg border border-neutral-300 hover:border-black transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Currently Active Badge */}
+            <div className="bg-emerald-50 border-2 border-emerald-400 rounded-xl p-3 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-mono font-bold uppercase text-emerald-700 block">
+                  Current Active Printer
+                </span>
+                <span className="font-mono font-black text-sm text-emerald-950 flex items-center gap-1.5 mt-0.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
+                  {activePrinter}
+                </span>
+              </div>
+              <span className="text-[10px] font-bold font-mono bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded">
+                CONNECTED
+              </span>
+            </div>
+
+            {/* WebUSB Auto-Detect */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold font-mono text-neutral-700 block">
+                Option 1: 1-Click USB Auto-Detect
+              </label>
+              <button
+                type="button"
+                disabled={isDetectingUsb}
+                onClick={handleDetectUsbPrinter}
+                className="w-full py-2.5 px-4 bg-white hover:bg-neutral-50 text-[#191919] font-bold text-xs rounded-xl border-2 border-[#191919] shadow-[2px_2px_0px_#191919] transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-75"
+              >
+                {isDetectingUsb ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-[#e75325]" />
+                    <span>Detecting plugged-in USB printer...</span>
+                  </>
+                ) : (
+                  <>
+                    <Usb className="w-4 h-4 text-[#e75325]" />
+                    <span>Auto-Detect Plugged USB Printer</span>
+                  </>
+                )}
+              </button>
+              <p className="text-[10px] font-mono text-neutral-400">
+                Pops up browser device dialog to instantly link your Canon, Epson, or HP via USB.
+              </p>
+            </div>
+
+            {/* Option 2: Choose from popular models */}
+            <div className="space-y-3 pt-2 border-t border-neutral-200">
+              <label className="text-xs font-bold font-mono text-neutral-700 block">
+                Option 2: Select Your Printer Model
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  "Canon G2010 series",
+                  "EPSON L380 Series",
+                  "Epson L3110 / L3210",
+                  "Canon G3010 / G3020",
+                  "HP LaserJet M1005 / 1020",
+                  "Brother DCP-T520W",
+                ].map((model) => (
+                  <button
+                    key={model}
+                    type="button"
+                    onClick={() => {
+                      setSelectedPrinterInput(model);
+                      handleSavePrinterName(model);
+                    }}
+                    className={`p-2 rounded-lg border text-left text-[11px] font-mono font-bold transition flex items-center justify-between cursor-pointer ${
+                      activePrinter.toLowerCase().includes(model.toLowerCase().slice(0, 8))
+                        ? "bg-[#191919] text-white border-[#191919] shadow-[2px_2px_0px_#e75325]"
+                        : "bg-neutral-50 text-neutral-700 border-neutral-300 hover:border-black hover:bg-white"
+                    }`}
+                  >
+                    <span className="truncate">{model}</span>
+                    <CheckCircle2 className="w-3 h-3 shrink-0 ml-1 opacity-75" />
+                  </button>
+                ))}
+              </div>
+
+              {/* Custom Input */}
+              <div className="pt-2">
+                <label className="text-[11px] font-bold font-mono text-neutral-600 block mb-1">
+                  Or Type Custom Printer Name:
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={selectedPrinterInput}
+                    onChange={(e) => setSelectedPrinterInput(e.target.value)}
+                    placeholder="e.g. Epson L380, Canon G2010..."
+                    className="flex-1 bg-[var(--background)] border-2 border-[#191919] rounded-lg px-3 py-1.5 font-mono text-xs font-bold"
+                  />
+                  <button
+                    type="button"
+                    disabled={isSavingPrinter || !selectedPrinterInput.trim()}
+                    onClick={() => handleSavePrinterName(selectedPrinterInput)}
+                    className="px-4 py-1.5 bg-[#e75325] hover:bg-[#d9481c] text-white font-bold text-xs rounded-lg border-2 border-[#191919] shadow-[2px_2px_0px_#191919] transition flex items-center gap-1 cursor-pointer disabled:opacity-75"
+                  >
+                    {isSavingPrinter ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Save className="w-3 h-3" />
+                    )}
+                    <span>Save</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-neutral-200 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowPrinterModal(false)}
+                className="px-4 py-2 bg-neutral-100 hover:bg-neutral-200 text-[#191919] font-bold text-xs rounded-xl border border-neutral-300 transition cursor-pointer"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   );
