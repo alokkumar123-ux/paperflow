@@ -10,6 +10,7 @@ import {
   onSnapshot,
   addDoc,
   updateDoc,
+  deleteDoc,
   doc,
   query,
   serverTimestamp,
@@ -29,6 +30,10 @@ import {
   Download,
   DollarSign,
   FileText,
+  Lock,
+  Unlock,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 
 interface Shop {
@@ -39,6 +44,7 @@ interface Shop {
   rateColor: number;
   duplexDiscount: number;
   isOpen: boolean;
+  isBlocked?: boolean;
   address?: string;
   createdAt?: any;
 }
@@ -56,6 +62,8 @@ export default function SuperAdminSecretPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
+  const [actionLoadingShopId, setActionLoadingShopId] = useState<string | null>(null);
+  const [deleteShopTarget, setDeleteShopTarget] = useState<Shop | null>(null);
 
   // New shop form state
   const [newShopName, setNewShopName] = useState("");
@@ -81,6 +89,7 @@ export default function SuperAdminSecretPage() {
           rateColor: data.rateColor ?? data.rate_color ?? 10.0,
           duplexDiscount: data.duplexDiscount ?? data.duplex_discount ?? 0.1,
           isOpen: data.isOpen ?? data.is_open ?? true,
+          isBlocked: data.isBlocked ?? data.is_blocked ?? false,
           address: data.address || "",
           createdAt: data.createdAt,
         });
@@ -118,6 +127,56 @@ export default function SuperAdminSecretPage() {
       });
     } catch (err) {
       console.error("Error toggling shop status:", err);
+    }
+  };
+
+  const handleToggleBlock = async (shop: Shop) => {
+    setActionLoadingShopId(shop.id);
+    const nextBlocked = !shop.isBlocked;
+    try {
+      const res = await fetch("/api/admin/manage-shop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shopId: shop.id, action: nextBlocked ? "block" : "unblock" }),
+      });
+      if (!res.ok) throw new Error("API call failed");
+    } catch (err) {
+      // Fallback to client-side Firestore update
+      try {
+        await updateDoc(doc(db, "shops", shop.id), {
+          isBlocked: nextBlocked,
+          is_blocked: nextBlocked,
+        });
+      } catch (fallbackErr: any) {
+        alert("Failed to update block status: " + fallbackErr.message);
+      }
+    } finally {
+      setActionLoadingShopId(null);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteShopTarget) return;
+    const targetId = deleteShopTarget.id;
+    setActionLoadingShopId(targetId);
+    try {
+      const res = await fetch("/api/admin/manage-shop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shopId: targetId, action: "delete" }),
+      });
+      if (!res.ok) throw new Error("API delete failed");
+      setDeleteShopTarget(null);
+    } catch (err) {
+      // Fallback to client-side delete
+      try {
+        await deleteDoc(doc(db, "shops", targetId));
+        setDeleteShopTarget(null);
+      } catch (fallbackErr: any) {
+        alert("Failed to delete shop: " + fallbackErr.message);
+      }
+    } finally {
+      setActionLoadingShopId(null);
     }
   };
 
@@ -369,24 +428,32 @@ export default function SuperAdminSecretPage() {
                           <span className="font-bold text-[#e75325]">₹{shop.rateColor.toFixed(2)}</span>
                         </td>
                         <td className="py-3.5 px-4">
-                          <button
-                            onClick={() => handleToggleStatus(shop)}
-                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border transition cursor-pointer ${
-                              shop.isOpen
-                                ? "bg-emerald-50 text-emerald-800 border-emerald-400 hover:bg-emerald-100"
-                                : "bg-rose-50 text-rose-800 border-rose-400 hover:bg-rose-100"
-                            }`}
-                          >
-                            {shop.isOpen ? (
-                              <>
-                                <CheckCircle className="w-3 h-3 text-emerald-600" /> OPEN
-                              </>
+                          <div className="flex flex-col gap-1 items-start">
+                            {shop.isBlocked ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black tracking-wider bg-rose-600 text-white border border-rose-700 shadow-xs">
+                                <Lock className="w-2.5 h-2.5" /> BLOCKED
+                              </span>
                             ) : (
-                              <>
-                                <XCircle className="w-3 h-3 text-rose-600" /> CLOSED
-                              </>
+                              <button
+                                onClick={() => handleToggleStatus(shop)}
+                                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border transition cursor-pointer ${
+                                  shop.isOpen
+                                    ? "bg-emerald-50 text-emerald-800 border-emerald-400 hover:bg-emerald-100"
+                                    : "bg-neutral-100 text-neutral-700 border-neutral-300 hover:bg-neutral-200"
+                                }`}
+                              >
+                                {shop.isOpen ? (
+                                  <>
+                                    <CheckCircle className="w-3 h-3 text-emerald-600" /> OPEN
+                                  </>
+                                ) : (
+                                  <>
+                                    <XCircle className="w-3 h-3 text-neutral-500" /> CLOSED
+                                  </>
+                                )}
+                              </button>
                             )}
-                          </button>
+                          </div>
                         </td>
                         <td className="py-3.5 px-4">
                           <div className="flex items-center gap-3">
@@ -409,22 +476,53 @@ export default function SuperAdminSecretPage() {
                             </button>
                           </div>
                         </td>
-                        <td className="py-3.5 px-4 text-right space-x-2">
-                          <Link
-                            href={`/shop/${shop.id}`}
-                            target="_blank"
-                            className="inline-flex items-center gap-1 text-[11px] font-bold text-neutral-700 border border-[#191919] px-2.5 py-1 rounded bg-white hover:bg-neutral-100 shadow-[1px_1px_0px_#191919]"
-                          >
-                            <ExternalLink className="w-3 h-3" />
-                            Customer
-                          </Link>
-                          <Link
-                            href={`/dashboard/${shop.id}`}
-                            className="inline-flex items-center gap-1 text-[11px] font-bold text-white bg-[#191919] px-2.5 py-1 rounded hover:bg-neutral-800 shadow-[1px_1px_0px_#191919]"
-                          >
-                            <Printer className="w-3 h-3" />
-                            Dashboard
-                          </Link>
+                        <td className="py-3.5 px-4 text-right">
+                          <div className="inline-flex items-center gap-1.5 justify-end flex-wrap">
+                            <Link
+                              href={`/shop/${shop.id}`}
+                              target="_blank"
+                              className="inline-flex items-center gap-1 text-[11px] font-bold text-neutral-700 border border-[#191919] px-2.5 py-1 rounded bg-white hover:bg-neutral-100 shadow-[1px_1px_0px_#191919]"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              Customer
+                            </Link>
+                            <Link
+                              href={`/dashboard/${shop.id}`}
+                              className="inline-flex items-center gap-1 text-[11px] font-bold text-white bg-[#191919] px-2.5 py-1 rounded hover:bg-neutral-800 shadow-[1px_1px_0px_#191919]"
+                            >
+                              <Printer className="w-3 h-3" />
+                              Dashboard
+                            </Link>
+                            <button
+                              onClick={() => handleToggleBlock(shop)}
+                              disabled={actionLoadingShopId === shop.id}
+                              className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded border border-[#191919] transition shadow-[1px_1px_0px_#191919] cursor-pointer ${
+                                shop.isBlocked
+                                  ? "bg-amber-100 text-amber-900 hover:bg-amber-200"
+                                  : "bg-white text-neutral-800 hover:bg-rose-50 hover:text-rose-700"
+                              }`}
+                              title={shop.isBlocked ? "Unblock this shop" : "Block this shop"}
+                            >
+                              {shop.isBlocked ? (
+                                <>
+                                  <Unlock className="w-3 h-3 text-amber-700" /> Unblock
+                                </>
+                              ) : (
+                                <>
+                                  <Lock className="w-3 h-3 text-rose-600" /> Block
+                                </>
+                              )}
+                            </button>
+                            <button
+                              onClick={() => setDeleteShopTarget(shop)}
+                              disabled={actionLoadingShopId === shop.id}
+                              className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-600 hover:text-white border border-rose-300 px-2.5 py-1 rounded shadow-[1px_1px_0px_#191919] transition cursor-pointer"
+                              title="Delete shop permanently"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              Delete
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -527,6 +625,61 @@ export default function SuperAdminSecretPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Shop Confirmation Modal */}
+      {deleteShopTarget && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white border-3 border-[#191919] rounded-2xl max-w-md w-full p-6 shadow-[8px_8px_0px_#191919] space-y-4">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="w-11 h-11 rounded-xl bg-rose-100 border-2 border-rose-500 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="font-black text-lg text-[#191919]">Delete Print Shop?</h3>
+                <p className="text-xs text-neutral-500 font-mono">Permanent destructive action</p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-neutral-50 border border-neutral-200 rounded-xl text-xs space-y-1.5 font-mono">
+              <div>
+                <span className="font-bold text-neutral-500">Shop:</span>{" "}
+                <span className="font-black text-[#191919]">{deleteShopTarget.name}</span>
+              </div>
+              <div>
+                <span className="font-bold text-neutral-500">Owner:</span>{" "}
+                <span className="text-neutral-700">{deleteShopTarget.ownerEmail}</span>
+              </div>
+              <div>
+                <span className="font-bold text-neutral-500">Shop ID:</span>{" "}
+                <span className="text-neutral-400">{deleteShopTarget.id}</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-neutral-600 leading-relaxed">
+              Are you sure you want to permanently delete this print shop? The shop owner will lose dashboard access and customers will no longer be able to place orders.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-neutral-200">
+              <button
+                type="button"
+                onClick={() => setDeleteShopTarget(null)}
+                className="px-4 py-2 border border-[#191919] rounded-xl text-xs font-bold bg-neutral-100 hover:bg-neutral-200 text-[#191919] transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={actionLoadingShopId === deleteShopTarget.id}
+                className="px-4 py-2 bg-rose-600 text-white border-2 border-[#191919] rounded-xl text-xs font-bold hover:bg-rose-700 transition shadow-[2px_2px_0px_#191919] flex items-center gap-1.5 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {actionLoadingShopId === deleteShopTarget.id ? "Deleting..." : "Yes, Delete Shop"}
+              </button>
+            </div>
           </div>
         </div>
       )}

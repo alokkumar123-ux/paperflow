@@ -23,6 +23,7 @@ import {
   Files,
   FileCode,
   Eye,
+  Lock,
 } from "lucide-react";
 import PdfPageSelectorModal from "@/components/PdfPageSelectorModal";
 import { calculatePrice, formatFileSize, parsePageRange } from "@/lib/utils";
@@ -34,6 +35,7 @@ interface ShopData {
   rateColor: number;
   duplexDiscount: number;
   isOpen: boolean;
+  isBlocked?: boolean;
 }
 
 interface UploadedFileItem {
@@ -102,6 +104,7 @@ export default function ShopCustomerPage({
             rateColor: data.rateColor ?? data.rate_color ?? 10.0,
             duplexDiscount: data.duplexDiscount ?? data.duplex_discount ?? 0.1,
             isOpen: data.isOpen ?? data.is_open ?? true,
+            isBlocked: data.isBlocked ?? data.is_blocked ?? false,
           });
         } else {
           setShop({
@@ -111,6 +114,7 @@ export default function ShopCustomerPage({
             rateColor: 10.0,
             duplexDiscount: 0.15,
             isOpen: true,
+            isBlocked: false,
           });
         }
         setLoadingShop(false);
@@ -123,6 +127,7 @@ export default function ShopCustomerPage({
           rateColor: 10.0,
           duplexDiscount: 0.15,
           isOpen: true,
+          isBlocked: false,
         });
         setLoadingShop(false);
       }
@@ -209,6 +214,10 @@ export default function ShopCustomerPage({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!shop) return;
+    if (shop.isBlocked) {
+      alert("This print shop is currently suspended by the administrator.");
+      return;
+    }
     if (fileList.length === 0) {
       alert("Please upload at least one document or image to proceed.");
       return;
@@ -344,21 +353,52 @@ export default function ShopCustomerPage({
 
           {/* Right: Shop Open/Closed Status Badge */}
           <div className="shrink-0">
-            <span
-              className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${shop?.isOpen
-                ? "bg-emerald-50 text-emerald-800 border-emerald-500 shadow-[1px_1px_0px_#191919]"
-                : "bg-rose-50 text-rose-800 border-rose-500 shadow-[1px_1px_0px_#191919]"
-                }`}
-            >
-              {shop?.isOpen ? "● Open" : "○ Closed"}
-            </span>
+            {shop?.isBlocked ? (
+              <span className="text-[11px] font-bold px-2.5 py-1 rounded-full border bg-rose-600 text-white border-rose-700 shadow-[1px_1px_0px_#191919] flex items-center gap-1">
+                <Lock className="w-3 h-3" /> Suspended
+              </span>
+            ) : (
+              <span
+                className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${shop?.isOpen
+                  ? "bg-emerald-50 text-emerald-800 border-emerald-500 shadow-[1px_1px_0px_#191919]"
+                  : "bg-rose-50 text-rose-800 border-rose-500 shadow-[1px_1px_0px_#191919]"
+                  }`}
+              >
+                {shop?.isOpen ? "● Open" : "○ Closed"}
+              </span>
+            )}
           </div>
         </div>
       </header>
 
       {/* Main Content: Single clean mobile column (grid on desktop) */}
       <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-5 space-y-5">
-        <form onSubmit={handleSubmit} className="space-y-5">
+        {shop?.isBlocked ? (
+          <div className="bg-white rounded-3xl border-3 border-[#191919] p-8 sm:p-12 text-center space-y-5 shadow-[8px_8px_0px_#191919] animate-in fade-in">
+            <div className="w-20 h-20 rounded-2xl bg-rose-100 border-2 border-rose-500 flex items-center justify-center mx-auto text-rose-600 shadow-[4px_4px_0px_#e11d48]">
+              <Lock className="w-10 h-10 animate-pulse" />
+            </div>
+            <div className="space-y-2">
+              <span className="font-mono text-xs font-black uppercase tracking-wider px-3 py-1 bg-rose-600 text-white rounded-full">
+                Counter Inactive
+              </span>
+              <h2 className="text-2xl font-black text-[#191919]">Print Counter Suspended</h2>
+              <p className="text-xs sm:text-sm text-neutral-600 max-w-md mx-auto leading-relaxed">
+                This print shop has been temporarily suspended by the campus administrator. Document uploads and new print tickets cannot be submitted at this time.
+              </p>
+            </div>
+            <div className="pt-2">
+              <Link
+                href="/"
+                className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-neutral-100 hover:bg-neutral-200 border-2 border-[#191919] text-xs font-bold shadow-[2px_2px_0px_#191919] transition"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                Return to Homepage
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-5">
           {/* STEP 1: Upload Documents (Multi-file Support) */}
           <section className="bg-white rounded-2xl border-2 border-[#191919] p-4 sm:p-5 shadow-[4px_4px_0px_#191919] space-y-3.5">
             <div className="flex items-center justify-between">
@@ -778,6 +818,7 @@ export default function ShopCustomerPage({
             </div>
           </section>
         </form>
+        )}
       </main>
 
       {/* Visual PDF Page Selector Modal */}

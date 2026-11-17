@@ -40,6 +40,9 @@ export async function POST(request: Request) {
 
     if (shopDoc.exists) {
       const data = shopDoc.data();
+      if (data?.isBlocked || data?.is_blocked) {
+        return NextResponse.json({ error: "This print shop is currently suspended by the platform administrator" }, { status: 403 });
+      }
       rateBw = data?.rateBw ?? data?.rate_bw ?? 2.0;
       rateColor = data?.rateColor ?? data?.rate_color ?? 10.0;
       duplexDiscount = data?.duplexDiscount ?? data?.duplex_discount ?? 0.1;

@@ -34,6 +34,7 @@ import {
   X,
   Loader2,
   WifiOff,
+  Lock,
 } from "lucide-react";
 
 interface UploadedFileRef {
@@ -70,6 +71,7 @@ interface Shop {
   id: string;
   name: string;
   isOpen: boolean;
+  isBlocked?: boolean;
   rateBw: number;
   rateColor: number;
   duplexDiscount: number;
@@ -120,6 +122,7 @@ export default function DashboardShopPage({
             id: first.id,
             name: data.name || "Main Print Shop",
             isOpen: data.isOpen ?? data.is_open ?? true,
+            isBlocked: data.isBlocked ?? data.is_blocked ?? false,
             rateBw: data.rateBw ?? data.rate_bw ?? 2.0,
             rateColor: data.rateColor ?? data.rate_color ?? 10.0,
             duplexDiscount: data.duplexDiscount ?? data.duplex_discount ?? 0.15,
@@ -132,6 +135,7 @@ export default function DashboardShopPage({
             id: "default",
             name: "Campus Print Hub",
             isOpen: true,
+            isBlocked: false,
             rateBw: 2.0,
             rateColor: 10.0,
             duplexDiscount: 0.15,
@@ -147,6 +151,7 @@ export default function DashboardShopPage({
             id: snap.id,
             name: data.name || "Print Shop",
             isOpen: data.isOpen ?? data.is_open ?? true,
+            isBlocked: data.isBlocked ?? data.is_blocked ?? false,
             rateBw: data.rateBw ?? data.rate_bw ?? 2.0,
             rateColor: data.rateColor ?? data.rate_color ?? 10.0,
             duplexDiscount: data.duplexDiscount ?? data.duplex_discount ?? 0.15,
@@ -159,6 +164,7 @@ export default function DashboardShopPage({
             id: shopId,
             name: "Campus Print Hub",
             isOpen: true,
+            isBlocked: false,
             rateBw: 2.0,
             rateColor: 10.0,
             duplexDiscount: 0.15,
@@ -373,7 +379,62 @@ export default function DashboardShopPage({
   const completedCount = orders.filter((o) => o.status === "completed").length;
 
   return (
-    <div className="min-h-screen paper-grid bg-[var(--background)] text-[#191919] flex flex-col font-sans">
+    <div className={`min-h-screen paper-grid bg-[var(--background)] text-[#191919] flex flex-col font-sans relative ${currentShop?.isBlocked ? "overflow-hidden" : ""}`}>
+      {/* Blocked / Suspended Overlay */}
+      {currentShop?.isBlocked && (
+        <div className="fixed inset-0 z-50 bg-neutral-950/70 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
+          <div className="bg-white border-4 border-[#191919] rounded-3xl max-w-lg w-full p-8 shadow-[12px_12px_0px_#191919] text-center space-y-6 animate-in zoom-in-95">
+            <div className="mx-auto w-24 h-24 rounded-3xl bg-rose-100 border-3 border-rose-500 flex items-center justify-center shadow-[6px_6px_0px_#e11d48]">
+              <Lock className="w-12 h-12 text-rose-600 animate-pulse" />
+            </div>
+
+            <div className="space-y-2">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-600 text-white font-mono text-[11px] font-black uppercase tracking-wider shadow-xs">
+                <span>●</span> Dashboard Locked
+              </span>
+              <h2 className="text-2xl sm:text-3xl font-black text-[#191919] tracking-tight">
+                Shop Access Blocked
+              </h2>
+              <p className="text-xs sm:text-sm text-neutral-600 leading-relaxed max-w-sm mx-auto">
+                The operations for <strong className="text-[#191919]">{currentShop?.name}</strong> have been suspended by the platform administrator. Access to the queue and printing is locked.
+              </p>
+            </div>
+
+            <div className="p-4 bg-neutral-50 border-2 border-neutral-200 rounded-2xl text-xs font-mono space-y-1.5 text-left">
+              <div className="flex justify-between items-center text-neutral-500">
+                <span>Shop:</span>
+                <span className="font-bold text-[#191919]">{currentShop?.name}</span>
+              </div>
+              <div className="flex justify-between items-center text-neutral-500">
+                <span>Shop ID:</span>
+                <span className="font-bold text-neutral-700">{currentShop?.id}</span>
+              </div>
+              <div className="flex justify-between items-center text-neutral-500">
+                <span>Status:</span>
+                <span className="font-bold text-rose-600 uppercase">Suspended by Admin</span>
+              </div>
+            </div>
+
+            <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+              <Link
+                href="/"
+                className="w-full sm:w-auto px-5 py-2.5 bg-neutral-100 hover:bg-neutral-200 text-[#191919] font-bold text-xs rounded-xl border-2 border-[#191919] shadow-[2px_2px_0px_#191919] transition text-center"
+              >
+                Return to Home
+              </Link>
+              <a
+                href="mailto:support@paperflow.com"
+                className="w-full sm:w-auto px-5 py-2.5 bg-[#e75325] hover:bg-[#d9481c] text-white font-bold text-xs rounded-xl border-2 border-[#191919] shadow-[2px_2px_0px_#191919] transition flex items-center justify-center gap-1.5 text-center"
+              >
+                Contact Administrator
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main Blurred Wrapper when blocked */}
+      <div className={`flex flex-col flex-1 ${currentShop?.isBlocked ? "filter blur-sm pointer-events-none select-none transition-all duration-300" : ""}`}>
       {/* Top Header */}
       <header className="bg-[var(--background)] border-b-2 border-[#191919] sticky top-0 z-20">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
@@ -850,6 +911,7 @@ export default function DashboardShopPage({
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }
