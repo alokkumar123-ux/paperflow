@@ -290,14 +290,17 @@ export default function DashboardShopPage({
     setCheckingPrinterForOrderId(order.id);
     try {
       // 1. Mark as printing in Firestore immediately
+      // The background Silent Print Agent listening to Firestore will instantly print to Canon G2010
       await updateDoc(doc(db, "orders", order.id), { status: "printing" });
 
-      // 2. Open auto-print window (immediately triggers printer dialog, NO Ctrl+P needed!)
-      const printUrl = `/print/${order.id}`;
-      const win = window.open(printUrl, "_blank", "width=1000,height=900");
-      if (!win) {
-        window.open(printUrl, "_blank");
-      }
+      // 2. Also notify local agent on port 4141 for instant response
+      try {
+        fetch("http://127.0.0.1:4141/print", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderId: order.id }),
+        }).catch(() => {});
+      } catch (_) {}
     } catch (err: any) {
       console.error("Print error:", err);
       alert("Failed to start printing: " + (err?.message || "Unknown error"));
@@ -620,11 +623,9 @@ export default function DashboardShopPage({
                                 ) : null}
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    window.open(`/print/${order.id}`, "_blank", "width=1000,height=900");
-                                  }}
+                                  onClick={() => handleStartPrinting(order)}
                                   className="text-[#e75325] hover:text-[#d9481c] font-bold font-mono shrink-0 flex items-center gap-0.5 bg-white border border-[#191919] px-2 py-0.5 rounded shadow-[1px_1px_0px_#191919] cursor-pointer"
-                                  title="Print file directly"
+                                  title="Silent Print Document"
                                 >
                                   <Printer className="w-3 h-3 text-[#e75325]" />
                                   Print
@@ -737,7 +738,7 @@ export default function DashboardShopPage({
                         >
                           {checkingPrinterForOrderId === order.id || updatingOrderId === order.id ? (
                             <>
-                              <Loader2 className="w-3.5 h-3.5 animate-spin text-[#e75325]" /> Opening File...
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-[#e75325]" /> Printing to Canon G2010...
                             </>
                           ) : (
                             <>
