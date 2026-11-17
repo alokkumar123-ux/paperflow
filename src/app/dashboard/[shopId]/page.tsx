@@ -292,16 +292,15 @@ export default function DashboardShopPage({
       // 1. Mark as printing in Firestore immediately
       await updateDoc(doc(db, "orders", order.id), { status: "printing" });
 
-      // 2. Open the file for printing via browser's native print dialog
-      const fileToPrint = order.fileDownloadUrl || order.files?.[0]?.url;
-      if (fileToPrint) {
-        window.open(fileToPrint, "_blank");
-      } else {
-        alert("No file found. Please download manually from the Download button.");
+      // 2. Open auto-print window (immediately triggers printer dialog, NO Ctrl+P needed!)
+      const printUrl = `/print/${order.id}`;
+      const win = window.open(printUrl, "_blank", "width=1000,height=900");
+      if (!win) {
+        window.open(printUrl, "_blank");
       }
     } catch (err: any) {
       console.error("Print error:", err);
-      alert("Failed to start printing. Please try downloading and printing manually.");
+      alert("Failed to start printing: " + (err?.message || "Unknown error"));
     } finally {
       setCheckingPrinterForOrderId(null);
     }
@@ -607,17 +606,30 @@ export default function DashboardShopPage({
                           >
                             <div className="flex items-center justify-between gap-1">
                               <span className="font-mono font-bold truncate max-w-[190px]">{fileItem.name}</span>
-                              {fileItem.url ? (
-                                <a
-                                  href={fileItem.url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="text-[#e75325] hover:underline font-bold font-mono ml-2 shrink-0 flex items-center gap-0.5 bg-white border border-[#191919] px-2 py-0.5 rounded shadow-[1px_1px_0px_#191919]"
+                              <div className="flex items-center gap-1">
+                                {fileItem.url ? (
+                                  <a
+                                    href={fileItem.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-neutral-600 hover:text-black font-bold font-mono shrink-0 flex items-center gap-0.5 bg-white border border-[#191919] px-2 py-0.5 rounded shadow-[1px_1px_0px_#191919]"
+                                  >
+                                    <Download className="w-3 h-3" />
+                                    Download
+                                  </a>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    window.open(`/print/${order.id}`, "_blank", "width=1000,height=900");
+                                  }}
+                                  className="text-[#e75325] hover:text-[#d9481c] font-bold font-mono shrink-0 flex items-center gap-0.5 bg-white border border-[#191919] px-2 py-0.5 rounded shadow-[1px_1px_0px_#191919] cursor-pointer"
+                                  title="Print file directly"
                                 >
-                                  <Download className="w-3 h-3" />
-                                  Download
-                                </a>
-                              ) : null}
+                                  <Printer className="w-3 h-3 text-[#e75325]" />
+                                  Print
+                                </button>
+                              </div>
                             </div>
                             {fileItem.pageRange && fileItem.totalPages && fileItem.totalPages > 1 ? (
                               <div className="flex items-center gap-1.5 font-mono text-[10px]">
