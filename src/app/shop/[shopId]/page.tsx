@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { auth, db, storage } from "@/lib/firebase";
 import { signInAnonymously } from "firebase/auth";
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot, collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import {
   Upload,
@@ -297,15 +297,72 @@ export default function ShopCustomerPage({
       setUploadProgress(92);
       setUploadStatus("Files saved to cloud! Generating print ticket...");
 
-      // Call API route
-      const res = await fetch("/api/orders/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      // 1. Try server-side order creation via API
+      let finalOrderId = "";
+      try {
+        const res = await fetch("/api/orders/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            shopId: shop.id,
+            customerUid: customerUid || "anonymous",
+            files: uploadedResults,
+            fileName: uploadedResults[0]?.name || "Document",
+            filePath: uploadedResults[0]?.path || "",
+            fileSize: totalBytes,
+            fileDownloadUrl: uploadedResults[0]?.url || "",
+            pageCount: totalPages,
+            color: colorMode,
+            sides: sides,
+            copies: copies,
+            notes: notes.trim(),
+          }),
+        });
+
+        if (res.ok) {
+          const rawText = await res.text();
+          if (rawText) {
+            try {
+              const data = JSON.parse(rawText);
+              if (data?.orderId) {
+                finalOrderId = data.orderId;
+              }
+            } catch (jsonErr) {
+              console.warn("API response was not valid JSON, using client fallback:", rawText);
+            }
+          }
+        }
+      } catch (apiErr) {
+        console.warn("API route failed, falling back to direct Firestore:", apiErr);
+      }
+
+      // 2. Client-side Firestore fallback if API did not return an orderId
+      if (!finalOrderId) {
+        console.info("Creating order via direct Firestore client-side fallback...");
+        const ticketNum = Math.floor(1000 + Math.random() * 9000);
+        const priceDetails = calculatePrice(
+          currentRateBw,
+          currentRateColor,
+          currentDiscount,
+          colorMode,
+          sides,
+          totalPages,
+          copies
+        );
+
+        const primaryFileName = uploadedResults[0]?.name || "Document";
+        const displayName = uploadedResults.length > 1
+          ? `${primaryFileName} (+${uploadedResults.length - 1} more)`
+          : primaryFileName;
+
+        const orderData = {
           shopId: shop.id,
+          ticketNumber: `TX-${ticketNum}`,
+          ticketNum: ticketNum,
           customerUid: customerUid || "anonymous",
+          customerName: `Ticket #${ticketNum}`,
           files: uploadedResults,
-          fileName: uploadedResults[0]?.name || "Document",
+          fileName: displayName,
           filePath: uploadedResults[0]?.path || "",
           fileSize: totalBytes,
           fileDownloadUrl: uploadedResults[0]?.url || "",
@@ -314,19 +371,24 @@ export default function ShopCustomerPage({
           sides: sides,
           copies: copies,
           notes: notes.trim(),
-        }),
-      });
+          subtotal: priceDetails.subtotal,
+          discountTotal: priceDetails.discountTotal,
+          amount: priceDetails.total,
+          paymentStatus: "unpaid",
+          status: "queued",
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        };
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to create order");
+        const newDocRef = await addDoc(collection(db, "orders"), orderData);
+        finalOrderId = newDocRef.id;
       }
 
       setUploadProgress(100);
       setUploadStatus("Ticket generated! Redirecting...");
-      router.push(`/ticket/${data.orderId}`);
+      router.push(`/ticket/${finalOrderId}`);
     } catch (err: any) {
-      console.error(err);
+      console.error("Order submission error:", err);
       alert(err.message || "Failed to submit print job. Please try again.");
       setIsSubmitting(false);
     }

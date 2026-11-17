@@ -30,15 +30,26 @@ if (getApps().length === 0) {
     }
   }
 
-  if (serviceAccount) {
-    if (typeof serviceAccount.private_key === "string") {
+  if (
+    serviceAccount &&
+    typeof serviceAccount.private_key === "string" &&
+    !serviceAccount.private_key.includes("YOUR_NEW") &&
+    serviceAccount.private_key.includes("BEGIN PRIVATE KEY")
+  ) {
+    try {
       serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, "\n");
+      app = initializeApp({
+        credential: cert(serviceAccount),
+        storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "bola-f035f.firebasestorage.app",
+      });
+      console.log("Firebase Admin initialized successfully with Service Account for project:", serviceAccount.project_id);
+    } catch (certErr) {
+      console.warn("Failed initializing Firebase Admin with cert, falling back to projectId:", certErr);
+      app = initializeApp({
+        projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "bola-f035f",
+        storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "bola-f035f.firebasestorage.app",
+      });
     }
-    app = initializeApp({
-      credential: cert(serviceAccount),
-      storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "bola-f035f.firebasestorage.app",
-    });
-    console.log("Firebase Admin initialized successfully with Service Account for project:", serviceAccount.project_id);
   } else {
     app = initializeApp({
       projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "bola-f035f",

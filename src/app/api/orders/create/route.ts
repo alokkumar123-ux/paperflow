@@ -3,6 +3,8 @@ import { adminDb } from "@/lib/firebase-admin";
 import { calculatePrice } from "@/lib/utils";
 import { FieldValue, Transaction } from "firebase-admin/firestore";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -62,19 +64,23 @@ export async function POST(request: Request) {
     // Atomic ticket counter using transaction
     const ticketCounterRef = adminDb.collection("counters").doc(`shop_${shopId}`);
     
-    let ticketNumber = 1001;
+    let ticketNumber = Math.floor(1000 + Math.random() * 9000);
 
-    await adminDb.runTransaction(async (transaction: Transaction) => {
-      const counterDoc = await transaction.get(ticketCounterRef);
-      if (!counterDoc.exists) {
-        transaction.set(ticketCounterRef, { current: 1001 });
-        ticketNumber = 1001;
-      } else {
-        const nextVal = (counterDoc.data()?.current || 1000) + 1;
-        transaction.update(ticketCounterRef, { current: nextVal });
-        ticketNumber = nextVal;
-      }
-    });
+    try {
+      await adminDb.runTransaction(async (transaction: Transaction) => {
+        const counterDoc = await transaction.get(ticketCounterRef);
+        if (!counterDoc.exists) {
+          transaction.set(ticketCounterRef, { current: 1001 });
+          ticketNumber = 1001;
+        } else {
+          const nextVal = (counterDoc.data()?.current || 1000) + 1;
+          transaction.update(ticketCounterRef, { current: nextVal });
+          ticketNumber = nextVal;
+        }
+      });
+    } catch (txErr) {
+      console.warn("Transaction counter failed, proceeding with random ticket number:", txErr);
+    }
 
     const orderRef = adminDb.collection("orders").doc();
     const orderData = {
