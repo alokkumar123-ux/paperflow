@@ -41,11 +41,26 @@ if (getApps().length === 0) {
 }
 
 const db = getFirestore();
-const SUMATRA_EXE = "D:\\paperflow\\bin\\SumatraPDF.exe";
-const TEMP_DIR = "D:\\paperflow\\.temp_prints";
+const BASE_DIR = process.cwd();
+const SUMATRA_EXE = fs.existsSync(path.join(BASE_DIR, "SumatraPDF.exe"))
+  ? path.join(BASE_DIR, "SumatraPDF.exe")
+  : fs.existsSync(path.join(BASE_DIR, "bin", "SumatraPDF.exe"))
+  ? path.join(BASE_DIR, "bin", "SumatraPDF.exe")
+  : "D:\\paperflow\\bin\\SumatraPDF.exe";
 
+const TEMP_DIR = path.join(BASE_DIR, "temp_prints");
 if (!fs.existsSync(TEMP_DIR)) {
   fs.mkdirSync(TEMP_DIR, { recursive: true });
+}
+
+// 0. Check for shop-id.txt to filter for specific shop
+let targetShopId = null;
+const shopIdPath = path.join(BASE_DIR, "shop-id.txt");
+if (fs.existsSync(shopIdPath)) {
+  targetShopId = fs.readFileSync(shopIdPath, "utf8").trim();
+  if (targetShopId) {
+    console.log(`🎯 Locked to Shop ID: ${targetShopId}`);
+  }
 }
 
 // Track active print jobs to avoid duplicate spooling
@@ -136,7 +151,13 @@ async function printDocument(orderId, orderData) {
 
 // 1. Real-time Firestore Listener for Shop Orders
 console.log(`📡 Connecting real-time listener to Firestore...`);
-const ordersRef = db.collection("orders");
+let ordersRef = db.collection("orders");
+if (targetShopId) {
+  ordersRef = ordersRef.where("shopId", "==", targetShopId);
+  console.log(`🔒 Exclusively listening for orders for shop: ${targetShopId}`);
+} else {
+  console.log(`🌐 Listening for all shops`);
+}
 
 ordersRef.onSnapshot(
   (snapshot) => {

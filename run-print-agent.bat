@@ -10,3 +10,4 @@ echo.
 echo Starting agent...
 bun run print-agent.mjs
 pause
+x

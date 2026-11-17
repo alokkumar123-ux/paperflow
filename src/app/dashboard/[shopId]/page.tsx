@@ -31,6 +31,7 @@ import {
   Sparkles,
   Loader2,
   Lock,
+  AlertTriangle,
 } from "lucide-react";
 
 interface UploadedFileRef {
@@ -60,6 +61,7 @@ interface Order {
   notes?: string;
   paymentStatus: "unpaid" | "paid_offline";
   status: "queued" | "printing" | "ready" | "completed";
+  printError?: string | null;
   createdAt?: any;
 }
 
@@ -71,6 +73,8 @@ interface Shop {
   rateBw: number;
   rateColor: number;
   duplexDiscount: number;
+  printerName?: string | null;
+  isPrinterOnline?: boolean;
 }
 
 export default function DashboardShopPage({
@@ -95,8 +99,52 @@ export default function DashboardShopPage({
   const [rateColor, setRateColor] = useState(10.0);
   const [duplexDiscount, setDuplexDiscount] = useState(0.15);
 
-  // Printer state
+  // Printer live status state
+  const [printerStatus, setPrinterStatus] = useState<{
+    name: string | null;
+    isOnline: boolean;
+  }>({
+    name: null,
+    isOnline: false,
+  });
+
+  // Printer action state
   const [checkingPrinterForOrderId, setCheckingPrinterForOrderId] = useState<string | null>(null);
+
+  // Live printer status polling from local desktop agent (with Firestore fallback)
+  useEffect(() => {
+    let isMounted = true;
+    const checkLocalPrinter = async () => {
+      try {
+        const res = await fetch("http://127.0.0.1:4141/printer-status", { cache: "no-store" });
+        if (res.ok) {
+          const data = await res.json();
+          if (isMounted) {
+            setPrinterStatus({
+              name: data.connected ? data.name : null,
+              isOnline: Boolean(data.connected && data.isOnline),
+            });
+            return;
+          }
+        }
+      } catch (_) {}
+
+      // Fallback to Firestore shop state
+      if (isMounted && currentShop) {
+        setPrinterStatus({
+          name: currentShop.printerName || null,
+          isOnline: Boolean(currentShop.isPrinterOnline),
+        });
+      }
+    };
+
+    checkLocalPrinter();
+    const interval = setInterval(checkLocalPrinter, 3000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [currentShop]);
 
   // 1. Fetch & Listen to Shop
   useEffect(() => {
@@ -117,6 +165,8 @@ export default function DashboardShopPage({
             rateBw: data.rateBw ?? data.rate_bw ?? 2.0,
             rateColor: data.rateColor ?? data.rate_color ?? 10.0,
             duplexDiscount: data.duplexDiscount ?? data.duplex_discount ?? 0.15,
+            printerName: data.printerName || null,
+            isPrinterOnline: data.isPrinterOnline ?? false,
           });
           setRateBw(data.rateBw ?? data.rate_bw ?? 2.0);
           setRateColor(data.rateColor ?? data.rate_color ?? 10.0);
@@ -147,6 +197,8 @@ export default function DashboardShopPage({
             rateBw: data.rateBw ?? data.rate_bw ?? 2.0,
             rateColor: data.rateColor ?? data.rate_color ?? 10.0,
             duplexDiscount: data.duplexDiscount ?? data.duplex_discount ?? 0.15,
+            printerName: data.printerName || null,
+            isPrinterOnline: data.isPrinterOnline ?? false,
           });
           setRateBw(data.rateBw ?? data.rate_bw ?? 2.0);
           setRateColor(data.rateColor ?? data.rate_color ?? 10.0);
@@ -201,6 +253,7 @@ export default function DashboardShopPage({
           notes: data.notes,
           paymentStatus: data.paymentStatus || "unpaid",
           status: data.status || "queued",
+          printError: data.printError || null,
           createdAt: data.createdAt,
         });
       });
@@ -287,11 +340,25 @@ export default function DashboardShopPage({
   };
 
   const handleStartPrinting = async (order: Order) => {
+    // Guard: Prevent printing if no printer is connected or if printer is offline
+    if (!printerStatus.name || !printerStatus.isOnline) {
+      alert(
+        `⚠️ Printer Not Connected!\n\n${
+          printerStatus.name
+            ? `Printer "${printerStatus.name}" is currently offline or turned off.`
+            : "No physical printer is connected to this computer."
+        }\n\nPlease plug in your printer's USB cable and make sure the power is turned ON.\n\nThe print job will not proceed until the printer is connected.`
+      );
+      return;
+    }
+
     setCheckingPrinterForOrderId(order.id);
     try {
       // 1. Mark as printing in Firestore immediately
-      // The background Silent Print Agent listening to Firestore will instantly print to Canon G2010
-      await updateDoc(doc(db, "orders", order.id), { status: "printing" });
+      await updateDoc(doc(db, "orders", order.id), {
+        status: "printing",
+        printError: null,
+      });
 
       // 2. Also notify local agent on port 4141 for instant response
       try {
@@ -409,7 +476,7 @@ export default function DashboardShopPage({
                 P
               </div>
               <div>
-                <h1 className="text-base font-bold text-[#191919] flex items-center gap-2">
+                <h1 className="text-base font-bold text-[#191919] flex items-center gap-2 flex-wrap">
                   {currentShop?.name || "Shop Dashboard"}
                   <span
                     className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
@@ -420,6 +487,31 @@ export default function DashboardShopPage({
                   >
                     {currentShop?.isOpen ? "● OPEN" : "○ CLOSED"}
                   </span>
+
+                  {/* Connected Printer Status Indicator */}
+                  {printerStatus.name && printerStatus.isOnline ? (
+                    <span
+                      className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-800 border-emerald-400 flex items-center gap-1 font-mono shadow-xs"
+                      title="Physical printer is connected and ready"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
+                      <Printer className="w-3 h-3 text-emerald-700" />
+                      <span>{printerStatus.name} (Ready)</span>
+                    </span>
+                  ) : (
+                    <span
+                      className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-rose-50 text-rose-800 border-rose-400 flex items-center gap-1 font-mono shadow-xs animate-pulse"
+                      title="Physical printer is disconnected or turned off"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-600" />
+                      <Printer className="w-3 h-3 text-rose-600" />
+                      <span>
+                        {printerStatus.name
+                          ? `${printerStatus.name} (Offline)`
+                          : "No Printer Connected"}
+                      </span>
+                    </span>
+                  )}
                 </h1>
               </div>
             </div>
@@ -671,6 +763,13 @@ export default function DashboardShopPage({
                     {order.notes && (
                       <div className="mt-2 p-2 bg-amber-50 text-amber-900 rounded border border-amber-200 text-[11px]">
                         <strong>Note:</strong> {order.notes}
+                      </div>
+                    )}
+
+                    {order.printError && (
+                      <div className="mt-2 p-2 bg-rose-50 text-rose-800 rounded border border-rose-300 text-[11px] flex items-center gap-1.5 font-mono">
+                        <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                        <span><strong>Print Halted:</strong> {order.printError}</span>
                       </div>
                     )}
                   </div>

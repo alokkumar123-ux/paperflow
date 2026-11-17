@@ -46,7 +46,47 @@ function getBrowserPath() {
   return null;
 }
 
-// 4. Prompt for Shop ID if not configured
+// 4. Detect Physical Printer Status (Canon, HP, Epson, Brother)
+async function detectPhysicalPrinter() {
+  const psCmd = `powershell -NoProfile -Command "Get-Printer | Select-Object Name, PrinterStatus, PortName, DriverName, Type | ConvertTo-Json"`;
+  try {
+    const { stdout } = await execAsync(psCmd, { timeout: 4000 });
+    const raw = JSON.parse(stdout || "[]");
+    const list = Array.isArray(raw) ? raw : [raw];
+    const physical = list.filter((p) => {
+      const name = (p.Name || "").toLowerCase();
+      const driver = (p.DriverName || "").toLowerCase();
+      return (
+        !driver.includes("microsoft") &&
+        !name.includes("pdf") &&
+        !name.includes("onenote") &&
+        !name.includes("xps") &&
+        !name.includes("fax")
+      );
+    });
+
+    if (physical.length > 0) {
+      const p = physical[0];
+      const isOnline =
+        p.PrinterStatus === "Normal" ||
+        p.PrinterStatus === 0 ||
+        p.PrinterStatus === 1 ||
+        p.PrinterStatus === 3;
+      return {
+        connected: true,
+        name: p.Name,
+        status: p.PrinterStatus,
+        port: p.PortName,
+        isOnline: isOnline,
+      };
+    }
+  } catch (e) {
+    console.warn("Printer detection warning:", e.message);
+  }
+  return { connected: false, name: null, status: "Disconnected", isOnline: false };
+}
+
+// 5. Prompt for Shop ID if not configured
 async function getShopId() {
   // Check local file shop-id.txt first
   const localShopFile = path.join(process.cwd(), "shop-id.txt");
@@ -128,6 +168,23 @@ async function printDocument(orderId, orderData) {
   console.log(`==================================================`);
 
   try {
+    // 0. Verify physical printer is connected & ready before proceeding
+    const printer = await detectPhysicalPrinter();
+    if (!printer.connected || !printer.isOnline) {
+      const errMsg = printer.name
+        ? `Printer "${printer.name}" is offline or turned off`
+        : "No physical printer is connected to this computer";
+      console.error(`❌ PRINT BLOCKED: ${errMsg}`);
+
+      // Revert order back to 'queued' so it does not complete
+      await db.collection("orders").doc(orderId).update({
+        status: "queued",
+        printError: errMsg,
+        printedSilently: false,
+      });
+      return;
+    }
+
     const fileUrl =
       orderData.fileDownloadUrl ||
       orderData.files?.[0]?.url ||
@@ -221,7 +278,7 @@ async function main() {
   );
 
   // 2. Start local HTTP bridge on 4141
-  const server = http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -235,6 +292,13 @@ async function main() {
     if (req.url === "/ping") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ status: "online", shopId }));
+      return;
+    }
+
+    if (req.url === "/printer-status") {
+      const p = await detectPhysicalPrinter();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(p));
       return;
     }
 
@@ -266,7 +330,21 @@ async function main() {
     console.log(`🔌 Local bridge active on 127.0.0.1:4141`);
   });
 
-  // 3. Launch the Native Desktop Window
+  // 3. Periodically sync printer status to Firestore
+  const syncPrinter = async () => {
+    try {
+      const p = await detectPhysicalPrinter();
+      await db.collection("shops").doc(shopId).update({
+        printerName: p.connected ? p.name : null,
+        isPrinterOnline: Boolean(p.connected && p.isOnline),
+        printerUpdatedAt: FieldValue.serverTimestamp(),
+      });
+    } catch (_) {}
+  };
+  syncPrinter();
+  setInterval(syncPrinter, 5000);
+
+  // 4. Launch the Native Desktop Window
   const browserPath = getBrowserPath();
   const dashboardUrl = `https://paperflow-dev.vercel.app/dashboard/${shopId}`;
 

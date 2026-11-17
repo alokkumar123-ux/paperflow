@@ -42,3 +42,10 @@ next-env.d.ts
 
 # service account
 service-account.json
+
+# binaries & temp
+*.exe
+*.zip
+.temp_prints/
+temp_prints/
+PaperFlow-Client-Package/
