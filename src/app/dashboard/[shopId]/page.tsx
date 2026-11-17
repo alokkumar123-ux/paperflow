@@ -340,16 +340,10 @@ export default function DashboardShopPage({
   };
 
   const handleStartPrinting = async (order: Order) => {
-    // Guard: Prevent printing if no printer is connected or if printer is offline
-    if (!printerStatus.name || !printerStatus.isOnline) {
-      alert(
-        `⚠️ Printer Not Connected!\n\n${
-          printerStatus.name
-            ? `Printer "${printerStatus.name}" is currently offline or turned off.`
-            : "No physical printer is connected to this computer."
-        }\n\nPlease plug in your printer's USB cable and make sure the power is turned ON.\n\nThe print job will not proceed until the printer is connected.`
-      );
-      return;
+    // Try printing via desktop agent or fallback to browser print
+    const fileToPrint = order.fileDownloadUrl || order.files?.[0]?.url;
+    if (fileToPrint && !currentShop?.printerName) {
+      window.open(`/print/${order.id}`, "_blank", "width=900,height=800");
     }
 
     setCheckingPrinterForOrderId(order.id);
@@ -489,27 +483,22 @@ export default function DashboardShopPage({
                   </span>
 
                   {/* Connected Printer Status Indicator */}
-                  {printerStatus.name && printerStatus.isOnline ? (
+                  {currentShop?.printerName || printerStatus.name ? (
                     <span
                       className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-800 border-emerald-400 flex items-center gap-1 font-mono shadow-xs"
-                      title="Physical printer is connected and ready"
+                      title="Physical printer connected and ready"
                     >
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse" />
                       <Printer className="w-3 h-3 text-emerald-700" />
-                      <span>{printerStatus.name} (Ready)</span>
+                      <span>{currentShop?.printerName || printerStatus.name} (Ready)</span>
                     </span>
                   ) : (
                     <span
-                      className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-rose-50 text-rose-800 border-rose-400 flex items-center gap-1 font-mono shadow-xs animate-pulse"
-                      title="Physical printer is disconnected or turned off"
+                      className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-neutral-100 text-neutral-700 border-neutral-300 flex items-center gap-1 font-mono shadow-xs"
+                      title="Printer ready for desktop or browser dispatch"
                     >
-                      <span className="w-1.5 h-1.5 rounded-full bg-rose-600" />
-                      <Printer className="w-3 h-3 text-rose-600" />
-                      <span>
-                        {printerStatus.name
-                          ? `${printerStatus.name} (Offline)`
-                          : "No Printer Connected"}
-                      </span>
+                      <Printer className="w-3 h-3 text-neutral-600" />
+                      <span>Printer Ready</span>
                     </span>
                   )}
                 </h1>

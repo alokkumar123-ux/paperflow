@@ -46,9 +46,9 @@ function getBrowserPath() {
   return null;
 }
 
-// 4. Detect Physical Printer Status (Canon, HP, Epson, Brother)
+// 4. Detect Physical Printer Status (Epson, Canon, HP, Brother, etc.)
 async function detectPhysicalPrinter() {
-  const psCmd = `powershell -NoProfile -Command "Get-Printer | Select-Object Name, PrinterStatus, PortName, DriverName, Type | ConvertTo-Json"`;
+  const psCmd = `powershell -NoProfile -Command "Get-CimInstance Win32_Printer | Select-Object Name, Default, PortName, DriverName, WorkOffline | ConvertTo-Json"`;
   try {
     const { stdout } = await execAsync(psCmd, { timeout: 4000 });
     const raw = JSON.parse(stdout || "[]");
@@ -66,24 +66,19 @@ async function detectPhysicalPrinter() {
     });
 
     if (physical.length > 0) {
-      const p = physical[0];
-      const isOnline =
-        p.PrinterStatus === "Normal" ||
-        p.PrinterStatus === 0 ||
-        p.PrinterStatus === 1 ||
-        p.PrinterStatus === 3;
+      // Prefer system default printer, else first physical printer
+      const p = physical.find((x) => x.Default) || physical[0];
       return {
         connected: true,
         name: p.Name,
-        status: p.PrinterStatus,
+        isOnline: true,
         port: p.PortName,
-        isOnline: isOnline,
       };
     }
   } catch (e) {
     console.warn("Printer detection warning:", e.message);
   }
-  return { connected: false, name: null, status: "Disconnected", isOnline: false };
+  return { connected: false, name: null, isOnline: false };
 }
 
 // 5. Prompt for Shop ID if not configured
